@@ -242,7 +242,7 @@ export function ScratchCardGame({ prizeLabel, prizeAmount, category = "gold-rush
   };
 
   return (
-    <Card className="p-4 md:p-8">
+    <Card className="p-4 md:p-6 max-w-2xl md:mx-auto">
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold">
@@ -271,14 +271,14 @@ export function ScratchCardGame({ prizeLabel, prizeAmount, category = "gold-rush
         {/* Container do grid com canvas sobreposto */}
         <div 
           ref={gridRef}
-          className="relative rounded-2xl overflow-hidden border-2 border-primary/30 bg-gradient-to-br from-card to-muted p-3 md:p-6"
+          className="relative rounded-2xl overflow-hidden border-2 border-primary/30 bg-gradient-to-br from-card to-muted p-3 md:p-4"
         >
           {/* Grid de ícones 3x3 */}
-          <div className="grid grid-rows-3 gap-2 md:gap-4">
+          <div className="grid grid-rows-3 gap-2 md:gap-3">
             {grid.map((row, rowIndex) => (
               <div 
                 key={rowIndex} 
-                className={`grid grid-cols-3 gap-2 md:gap-4 p-2 md:p-3 rounded-xl transition-all duration-500 ${
+                className={`grid grid-cols-3 gap-2 md:gap-3 p-2 rounded-xl transition-all duration-500 ${
                   isRevealed && rowIndex === winningRow 
                     ? 'bg-primary/20 ring-4 ring-primary shadow-2xl shadow-primary/50' 
                     : 'bg-card/50'
@@ -287,7 +287,7 @@ export function ScratchCardGame({ prizeLabel, prizeAmount, category = "gold-rush
                 {row.map((cell, colIndex) => (
                   <div
                     key={`${rowIndex}-${colIndex}`}
-                    className={`aspect-square rounded-xl flex items-center justify-center text-3xl md:text-5xl transition-all duration-500 ${
+                    className={`aspect-square rounded-xl flex items-center justify-center text-3xl md:text-4xl transition-all duration-500 ${
                       isRevealed && rowIndex === winningRow
                         ? 'bg-primary/30 scale-110'
                         : 'bg-muted/50'
