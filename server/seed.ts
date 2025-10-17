@@ -1,193 +1,138 @@
-import { db } from "./db";
-import { raspadinhas, prizes } from "@shared/schema";
+import "dotenv/config";
+import { db } from "./db.js";
+import { raspadinhas, prizes } from "../shared/schema.js";
 
-async function seed() {
-  console.log("🌱 Seeding database...");
+type R = typeof raspadinhas.$inferInsert;
+type P = typeof prizes.$inferInsert;
 
-  // Clear existing data
-  await db.delete(prizes);
-  await db.delete(raspadinhas);
+const now = new Date();
 
-  // Create themed scratch cards
-  const scratchCards = [
-    // Gold Rush Theme 🪙💎
-    {
-      title: "Gold Rush Básico",
-      slug: "gold-rush-basico",
-      price: "2.00",
-      maxPrize: "2000.00",
-      category: "gold-rush" as const,
-      imageUrl: "https://images.unsplash.com/photo-1610375461246-83df859d849d?w=400",
-      description: "Ganhe até R$ 2.000 💰🪙",
-      badge: "Popular",
-      isActive: true,
-    },
-    {
-      title: "Gold Rush Premium",
-      slug: "gold-rush-premium",
-      price: "10.00",
-      maxPrize: "100000.00",
-      category: "gold-rush" as const,
-      imageUrl: "https://images.unsplash.com/photo-1533327325824-76bc4e62d560?w=400",
-      description: "Jackpot 1000x - Ganhe até R$ 100.000 💎🏆",
-      badge: "Jackpot",
-      isActive: true,
-    },
-    
-    // Lucky Animals Theme 🐼🦊
-    {
-      title: "Lucky Animals",
-      slug: "lucky-animals",
-      price: "5.00",
-      maxPrize: "5000.00",
-      category: "lucky-animals" as const,
-      imageUrl: "https://images.unsplash.com/photo-1564349683136-77e08dba1ef7?w=400",
-      description: "Animais da sorte te trazem prêmios 🐼🦊",
-      badge: "+Chance",
-      isActive: true,
-    },
-    
-    // Vegas Lights Theme 🎰🎲
-    {
-      title: "Vegas Lights",
-      slug: "vegas-lights",
-      price: "20.00",
-      maxPrize: "200000.00",
-      category: "vegas-lights" as const,
-      imageUrl: "https://images.unsplash.com/photo-1596838132731-3301c3fd4317?w=400",
-      description: "Cassino de Las Vegas em suas mãos 🎰🎲",
-      badge: "Premium",
-      isActive: true,
-    },
-    
-    // Mythic Gods Theme ⚡🔥
-    {
-      title: "Mythic Gods",
-      slug: "mythic-gods",
-      price: "15.00",
-      maxPrize: "150000.00",
-      category: "mythic-gods" as const,
-      imageUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400",
-      description: "Poder dos deuses mitológicos ⚡🔥",
-      badge: "Novo",
-      isActive: true,
-    },
-    
-    // Crypto Scratch Theme ₿🚀
-    {
-      title: "Crypto Scratch",
-      slug: "crypto-scratch",
-      price: "25.00",
-      maxPrize: "250000.00",
-      category: "crypto-scratch" as const,
-      imageUrl: "https://images.unsplash.com/photo-1621761191319-c6fb62004040?w=400",
-      description: "To the moon! 🚀🌕 - Jackpot 1000x",
-      badge: "Exclusivo",
-      isActive: true,
-    },
-    
-    // Candy Mania Theme 🍭🍬
-    {
-      title: "Candy Mania",
-      slug: "candy-mania",
-      price: "1.00",
-      maxPrize: "1000.00",
-      category: "candy-mania" as const,
-      imageUrl: "https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=400",
-      description: "Doce sorte te espera 🍭🍬",
-      badge: "Iniciante",
-      isActive: true,
-    },
-  ];
-
-  const insertedCards = await db.insert(raspadinhas).values(scratchCards).returning();
-  console.log(`✅ Created ${insertedCards.length} scratch cards`);
-
-  // Create prizes for each raspadinha
-  const prizeData = [];
-
-  for (const card of insertedCards) {
-    if (card.slug === "gold-rush-basico") {
-      prizeData.push(
-        { raspadinhaId: card.id, label: "💎 R$ 2.000", amount: "2000.00", probability: "0.0010" },
-        { raspadinhaId: card.id, label: "🏆 R$ 500", amount: "500.00", probability: "0.0050" },
-        { raspadinhaId: card.id, label: "🪙 R$ 100", amount: "100.00", probability: "0.0200" },
-        { raspadinhaId: card.id, label: "💰 R$ 20", amount: "20.00", probability: "0.1000" },
-        { raspadinhaId: card.id, label: "🔑 R$ 10", amount: "10.00", probability: "0.2000" },
-        { raspadinhaId: card.id, label: "R$ 4", amount: "4.00", probability: "0.3000" },
-        { raspadinhaId: card.id, label: "Tente de novo", amount: "0.00", probability: "0.3740" },
-      );
-    } else if (card.slug === "gold-rush-premium") {
-      prizeData.push(
-        { raspadinhaId: card.id, label: "💎 Jackpot R$ 100.000", amount: "100000.00", probability: "0.0001" },
-        { raspadinhaId: card.id, label: "🏆 R$ 10.000", amount: "10000.00", probability: "0.0010" },
-        { raspadinhaId: card.id, label: "🪙 R$ 1.000", amount: "1000.00", probability: "0.0100" },
-        { raspadinhaId: card.id, label: "💰 R$ 200", amount: "200.00", probability: "0.0500" },
-        { raspadinhaId: card.id, label: "🔑 R$ 50", amount: "50.00", probability: "0.1000" },
-        { raspadinhaId: card.id, label: "R$ 20", amount: "20.00", probability: "0.2000" },
-        { raspadinhaId: card.id, label: "Tente de novo", amount: "0.00", probability: "0.6389" },
-      );
-    } else if (card.slug === "lucky-animals") {
-      prizeData.push(
-        { raspadinhaId: card.id, label: "🐼 R$ 5.000", amount: "5000.00", probability: "0.0010" },
-        { raspadinhaId: card.id, label: "🦊 R$ 1.000", amount: "1000.00", probability: "0.0050" },
-        { raspadinhaId: card.id, label: "🐸 R$ 200", amount: "200.00", probability: "0.0200" },
-        { raspadinhaId: card.id, label: "🦉 R$ 50", amount: "50.00", probability: "0.1000" },
-        { raspadinhaId: card.id, label: "🐠 R$ 25", amount: "25.00", probability: "0.2000" },
-        { raspadinhaId: card.id, label: "R$ 10", amount: "10.00", probability: "0.3000" },
-        { raspadinhaId: card.id, label: "Tente de novo", amount: "0.00", probability: "0.3740" },
-      );
-    } else if (card.slug === "vegas-lights") {
-      prizeData.push(
-        { raspadinhaId: card.id, label: "🎰 Jackpot R$ 200.000", amount: "200000.00", probability: "0.0001" },
-        { raspadinhaId: card.id, label: "🎲 R$ 20.000", amount: "20000.00", probability: "0.0010" },
-        { raspadinhaId: card.id, label: "🎶 R$ 2.000", amount: "2000.00", probability: "0.0100" },
-        { raspadinhaId: card.id, label: "🎤 R$ 500", amount: "500.00", probability: "0.0500" },
-        { raspadinhaId: card.id, label: "🍸 R$ 100", amount: "100.00", probability: "0.1000" },
-        { raspadinhaId: card.id, label: "R$ 40", amount: "40.00", probability: "0.2000" },
-        { raspadinhaId: card.id, label: "Tente de novo", amount: "0.00", probability: "0.6389" },
-      );
-    } else if (card.slug === "mythic-gods") {
-      prizeData.push(
-        { raspadinhaId: card.id, label: "⚡ R$ 150.000", amount: "150000.00", probability: "0.0001" },
-        { raspadinhaId: card.id, label: "🔥 R$ 15.000", amount: "15000.00", probability: "0.0010" },
-        { raspadinhaId: card.id, label: "🪓 R$ 1.500", amount: "1500.00", probability: "0.0100" },
-        { raspadinhaId: card.id, label: "🐍 R$ 300", amount: "300.00", probability: "0.0500" },
-        { raspadinhaId: card.id, label: "👑 R$ 75", amount: "75.00", probability: "0.1000" },
-        { raspadinhaId: card.id, label: "R$ 30", amount: "30.00", probability: "0.2000" },
-        { raspadinhaId: card.id, label: "Tente de novo", amount: "0.00", probability: "0.6389" },
-      );
-    } else if (card.slug === "crypto-scratch") {
-      prizeData.push(
-        { raspadinhaId: card.id, label: "🚀 To the Moon R$ 250.000", amount: "250000.00", probability: "0.0001" },
-        { raspadinhaId: card.id, label: "₿ R$ 25.000", amount: "25000.00", probability: "0.0010" },
-        { raspadinhaId: card.id, label: "Ξ R$ 2.500", amount: "2500.00", probability: "0.0100" },
-        { raspadinhaId: card.id, label: "💎 R$ 500", amount: "500.00", probability: "0.0500" },
-        { raspadinhaId: card.id, label: "🌕 R$ 125", amount: "125.00", probability: "0.1000" },
-        { raspadinhaId: card.id, label: "R$ 50", amount: "50.00", probability: "0.2000" },
-        { raspadinhaId: card.id, label: "Tente de novo", amount: "0.00", probability: "0.6389" },
-      );
-    } else if (card.slug === "candy-mania") {
-      prizeData.push(
-        { raspadinhaId: card.id, label: "🍭 R$ 1.000", amount: "1000.00", probability: "0.0010" },
-        { raspadinhaId: card.id, label: "🍩 R$ 200", amount: "200.00", probability: "0.0050" },
-        { raspadinhaId: card.id, label: "🍪 R$ 50", amount: "50.00", probability: "0.0200" },
-        { raspadinhaId: card.id, label: "🍫 R$ 10", amount: "10.00", probability: "0.1000" },
-        { raspadinhaId: card.id, label: "🍬 R$ 5", amount: "5.00", probability: "0.2000" },
-        { raspadinhaId: card.id, label: "R$ 2", amount: "2.00", probability: "0.3000" },
-        { raspadinhaId: card.id, label: "Tente de novo", amount: "0.00", probability: "0.3740" },
-      );
-    }
+const raspas: R[] = [
+  {
+    id: "99c12334-5efc-4dce-80d3-a50c5cd43e6e",
+    slug: "gold-rush-basico",
+    title: "Gold Rush Básico",
+    description: "Ganhe até R$ 2.000 💰🪙",
+    price: "2.00" as any,
+    imageUrl: "https://images.unsplash.com/photo-1610375461246-83df859d849d?w=400",
+    category: "gold-rush",
+    maxPrize: "2000.00" as any,
+    badge: "Popular",
+    isActive: 1,
+    stock: 1000,
+    createdAt: now
+  },
+  {
+    id: "b363b32b-04b9-427a-a4aa-0d61bbf4b665",
+    slug: "gold-rush-premium",
+    title: "Gold Rush Premium",
+    description: "Jackpot 1000x - Ganhe até R$ 100.000 💎🏆",
+    price: "10.00" as any,
+    imageUrl: "https://images.unsplash.com/photo-1533327325824-76bc4e62d560?w=400",
+    category: "gold-rush",
+    maxPrize: "100000.00" as any,
+    badge: "Jackpot",
+    isActive: 1,
+    stock: 1000,
+    createdAt: now
+  },
+  {
+    id: "7f826289-28ab-4dfc-82b7-7b60c8ee83a3",
+    slug: "lucky-animals",
+    title: "Lucky Animals",
+    description: "Animais da sorte te trazem prêmios 🐼🦊",
+    price: "5.00" as any,
+    imageUrl: "https://images.unsplash.com/photo-1564349683136-77e08dba1ef7?w=400",
+    category: "lucky-animals",
+    maxPrize: "5000.00" as any,
+    badge: "+Chance",
+    isActive: 1,
+    stock: 1000,
+    createdAt: now
+  },
+  {
+    id: "abf12dce-d1db-48ec-92ff-8fb9d361275c",
+    slug: "vegas-lights",
+    title: "Vegas Lights",
+    description: "Cassino de Las Vegas em suas mãos 🎰🎲",
+    price: "20.00" as any,
+    imageUrl: "https://images.unsplash.com/photo-1596838132731-3301c3fd4317?w=400",
+    category: "vegas-lights",
+    maxPrize: "200000.00" as any,
+    badge: "Premium",
+    isActive: 1,
+    stock: 1000,
+    createdAt: now
+  },
+  {
+    id: "2b20fcec-74c2-4846-94d2-8fda5170968a",
+    slug: "mythic-gods",
+    title: "Mythic Gods",
+    description: "Poder dos deuses mitológicos ⚡🔥",
+    price: "15.00" as any,
+    imageUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400",
+    category: "mythic-gods",
+    maxPrize: "150000.00" as any,
+    badge: "Novo",
+    isActive: 1,
+    stock: 1000,
+    createdAt: now
+  },
+  {
+    id: "b8d33151-4c10-4986-bd0f-f1e54b976d5f",
+    slug: "crypto-scratch",
+    title: "Crypto Scratch",
+    description: "To the moon! 🚀🌕 - Jackpot 1000x",
+    price: "25.00" as any,
+    imageUrl: "https://images.unsplash.com/photo-1621761191319-c6fb62004040?w=400",
+    category: "crypto-scratch",
+    maxPrize: "250000.00" as any,
+    badge: "Exclusivo",
+    isActive: 1,
+    stock: 1000,
+    createdAt: now
+  },
+  {
+    id: "ffc3936e-e916-484c-8a7c-81c8e4abec6b",
+    slug: "candy-mania",
+    title: "Candy Mania",
+    description: "Doce sorte te espera 🍭🍬",
+    price: "1.00" as any,
+    imageUrl: "https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=400",
+    category: "candy-mania",
+    maxPrize: "1000.00" as any,
+    badge: "Iniciante",
+    isActive: 1,
+    stock: 1000,
+    createdAt: now
   }
+];
 
-  const insertedPrizes = await db.insert(prizes).values(prizeData).returning();
-  console.log(`✅ Created ${insertedPrizes.length} prizes`);
+const ps: P[] = [
+  { id: "d9a0dca6-3269-4f36-af52-9ddb175976f7", raspadinhaId: "99c12334-5efc-4dce-80d3-a50c5cd43e6e", amount: "2000.00" as any, label: "💎 R$ 2.000", probability: "0.0010" as any, imageUrl: null },
+  { id: "79edf037-f91b-49ca-8ac4-b7e389187ce6", raspadinhaId: "99c12334-5efc-4dce-80d3-a50c5cd43e6e", amount: "500.00" as any, label: "🏆 R$ 500", probability: "0.0050" as any, imageUrl: null },
+  { id: "f6c4c375-8cec-45f9-bd24-c47ac937192c", raspadinhaId: "99c12334-5efc-4dce-80d3-a50c5cd43e6e", amount: "100.00" as any, label: "🪙 R$ 100", probability: "0.0200" as any, imageUrl: null },
+  { id: "34b802fe-e2dd-418f-bd11-b0af1ccc0b39", raspadinhaId: "99c12334-5efc-4dce-80d3-a50c5cd43e6e", amount: "20.00" as any, label: "💰 R$ 20", probability: "0.1000" as any, imageUrl: null },
+  { id: "2e4d5411-bb70-4644-8c98-9ba64f4de14c", raspadinhaId: "99c12334-5efc-4dce-80d3-a50c5cd43e6e", amount: "10.00" as any, label: "🔑 R$ 10", probability: "0.2000" as any, imageUrl: null },
+  { id: "5d79a5fa-76d0-4fa1-9d74-c60560d8acc6", raspadinhaId: "99c12334-5efc-4dce-80d3-a50c5cd43e6e", amount: "4.00" as any, label: "R$ 4", probability: "0.3000" as any, imageUrl: null },
+  { id: "4ab4a00c-51b3-44e5-823b-816c778bac7e", raspadinhaId: "99c12334-5efc-4dce-80d3-a50c5cd43e6e", amount: "0.00" as any, label: "Tente de novo", probability: "0.3740" as any, imageUrl: null },
 
-  console.log("✨ Seeding completed!");
+  { id: "b3fb9a02-4736-4813-9925-1a76242eec48", raspadinhaId: "b363b32b-04b9-427a-a4aa-0d61bbf4b665", amount: "100000.00" as any, label: "💎 Jackpot R$ 100.000", probability: "0.0001" as any, imageUrl: null },
+  { id: "2963ab2b-3f6e-4a6c-8814-7524e9f52905", raspadinhaId: "b363b32b-04b9-427a-a4aa-0d61bbf4b665", amount: "10000.00" as any, label: "🏆 R$ 10.000", probability: "0.0010" as any, imageUrl: null },
+  { id: "945257a8-bc93-4eb4-b56a-55fd8757ffae", raspadinhaId: "b363b32b-04b9-427a-a4aa-0d61bbf4b665", amount: "1000.00" as any, label: "🪙 R$ 1.000", probability: "0.0100" as any, imageUrl: null },
+  { id: "a169103a-dbb6-4d18-ab03-054c77290bf8", raspadinhaId: "b363b32b-04b9-427a-a4aa-0d61bbf4b665", amount: "200.00" as any, label: "💰 R$ 200", probability: "0.0500" as any, imageUrl: null },
+  { id: "a154f92e-1a45-42a6-8ce3-28abff97f2ea", raspadinhaId: "b363b32b-04b9-427a-a4aa-0d61bbf4b665", amount: "50.00" as any, label: "🔑 R$ 50", probability: "0.1000" as any, imageUrl: null },
+  { id: "aebe7294-96e6-4b1d-bd45-83c8f9a37bcc", raspadinhaId: "b363b32b-04b9-427a-a4aa-0d61bbf4b665", amount: "20.00" as any, label: "R$ 20", probability: "0.2000" as any, imageUrl: null },
+  { id: "5e2f9b67-d84b-4ac7-8412-4357af675659", raspadinhaId: "b363b32b-04b9-427a-a4aa-0d61bbf4b665", amount: "0.00" as any, label: "Tente de novo", probability: "0.6389" as any, imageUrl: null }
+];
+
+async function main() {
+  await db.insert(raspadinhas).values(raspas).onDuplicateKeyUpdate({ set: { title: "updated" } });
+  await db.insert(prizes).values(ps).onDuplicateKeyUpdate({ set: { label: "updated" } });
   process.exit(0);
 }
 
-seed().catch((err) => {
-  console.error("❌ Seeding failed:", err);
+main().catch((e) => {
+  console.error(e);
   process.exit(1);
 });

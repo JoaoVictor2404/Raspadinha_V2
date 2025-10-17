@@ -1,16 +1,13 @@
-// Blueprint: javascript_database
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
-import * as schema from "@shared/schema";
+import "dotenv/config";
+import mysql from "mysql2/promise";
+import { drizzle } from "drizzle-orm/mysql2";
 
-neonConfig.webSocketConstructor = ws;
+const url = process.env.DATABASE_URL;
+if (!url) throw new Error("DATABASE_URL must be set (mysql://...)");
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
-}
+export const pool = await mysql.createPool({
+  uri: url,
+  connectionLimit: 10
+});
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle({ client: pool, schema });
+export const db = drizzle(pool);
