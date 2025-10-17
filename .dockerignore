@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log*
+pnpm-lock.yaml
+.yarn
+.yarnrc*
+.yarn/*
+.git
+.gitignore
+dist/*
+
+# uploads/cache locais, se houver
+.tmp
+cache
