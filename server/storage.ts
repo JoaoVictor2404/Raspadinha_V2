@@ -33,9 +33,10 @@ import {
 import { db, pool } from "./db";
 import { eq, and, desc } from "drizzle-orm";
 import session from "express-session";
-import connectPg from "connect-pg-simple";
+import MySQLStoreFactory from "express-mysql-session";
+import crypto from "node:crypto";
 
-const PostgresSessionStore = connectPg(session);
+const MySQLStore = MySQLStoreFactory(session);
 
 export interface IStorage {
   // User methods
@@ -70,13 +71,13 @@ export interface IStorage {
   getAffiliateByCode(code: string): Promise<Affiliate | undefined>;
   createAffiliate(affiliate: InsertAffiliate): Promise<Affiliate>;
   updateAffiliate(affiliateId: string, updates: Partial<Affiliate>): Promise<Affiliate>;
-  
+
   // Referral methods
   createReferral(referral: InsertReferral): Promise<Referral>;
   getReferralByUserId(userId: string): Promise<Referral | undefined>;
   getReferralsByAffiliate(affiliateId: string): Promise<Referral[]>;
   updateReferral(id: string, updates: Partial<Referral>): Promise<Referral>;
-  
+
   // Commission methods
   createCommission(commission: InsertCommission): Promise<Commission>;
   getCommissionsByAffiliate(affiliateId: string): Promise<Commission[]>;
@@ -85,20 +86,35 @@ export interface IStorage {
   getBonusesByUser(userId: string): Promise<Bonus[]>;
 
   // Session store
-  sessionStore: session.SessionStore;
+  sessionStore: session.Store;
 }
 
 export class DatabaseStorage implements IStorage {
-  sessionStore: session.SessionStore;
+  sessionStore: session.Store;
 
   constructor() {
-    this.sessionStore = new PostgresSessionStore({ pool, createTableIfMissing: true });
+    // Usa o pool do mysql2 já criado em ./db
+    this.sessionStore = new MySQLStore(
+      {
+        createDatabaseTable: true,
+        schema: {
+          tableName: "sessions",
+          columnNames: {
+            session_id: "session_id",
+            expires: "expires",
+            data: "data",
+          },
+        },
+      },
+      pool as any
+    );
   }
 
+  // ------- Users -------
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
-  }
+    }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
@@ -106,62 +122,63 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(insertUser)
-      .returning();
-    
-    // Auto-create wallet for new user
+    const id = (insertUser as any).id ?? crypto.randomUUID();
+    await db.insert(users).values({ ...(insertUser as any), id });
+    // Auto-create wallet
     await db.insert(wallets).values({
-      userId: user.id,
-      balanceTotal: "0",
-      balanceStandard: "0",
-      balancePrizes: "0",
-      balanceBonus: "0",
-    });
-
+      userId: id,
+      balanceTotal: "0.00" as any,
+      balanceStandard: "0.00" as any,
+      balancePrizes: "0.00" as any,
+      balanceBonus: "0.00" as any,
+    } as any);
     // Auto-create affiliate record
-    const referralCode = user.username.toLowerCase().replace(/\s+/g, '-');
+    const referralCode =
+      (insertUser as any).username?.toLowerCase?.().replace(/\s+/g, "-") ??
+      `ref-${id.slice(0, 8)}`;
     await db.insert(affiliates).values({
-      userId: user.id,
+      userId: id,
       referralCode,
       totalReferrals: 0,
       activeReferrals: 0,
-      commissionBalance: "0",
-    });
+      commissionBalance: "0.00" as any,
+    } as any);
 
-    return user;
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user!;
   }
 
+  // ------- Wallets -------
   async getWallet(userId: string): Promise<Wallet | undefined> {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.userId, userId));
     return wallet || undefined;
   }
 
   async createWallet(insertWallet: InsertWallet): Promise<Wallet> {
-    const [wallet] = await db.insert(wallets).values(insertWallet).returning();
-    return wallet;
+    const id = (insertWallet as any).id ?? crypto.randomUUID();
+    await db.insert(wallets).values({ ...(insertWallet as any), id });
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.id as any, id as any));
+    return wallet!;
   }
 
   async updateWallet(userId: string, updates: Partial<Wallet>): Promise<Wallet> {
-    const [wallet] = await db
+    await db
       .update(wallets)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(wallets.userId, userId))
-      .returning();
-    return wallet;
+      .set({ ...(updates as any), updatedAt: new Date() as any })
+      .where(eq(wallets.userId, userId));
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.userId, userId));
+    return wallet!;
   }
 
+  // ------- Raspadinhas & Prizes -------
   async getRaspadinhas(category?: string): Promise<Raspadinha[]> {
-    if (category && category !== 'destaque') {
-      return db.select().from(raspadinhas).where(
-        and(
-          eq(raspadinhas.category, category as any),
-          eq(raspadinhas.isActive, true)
-        )
-      );
+    if (category && category !== "destaque") {
+      return db
+        .select()
+        .from(raspadinhas)
+        .where(and(eq(raspadinhas.category as any, category as any), eq(raspadinhas.isActive as any, 1 as any)));
     }
-    return db.select().from(raspadinhas).where(eq(raspadinhas.isActive, true));
+    return db.select().from(raspadinhas).where(eq(raspadinhas.isActive as any, 1 as any));
   }
 
   async getRaspadinhaBySlug(slug: string): Promise<Raspadinha | undefined> {
@@ -173,45 +190,51 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(prizes).where(eq(prizes.raspadinhaId, raspadinhaId));
   }
 
+  // ------- Transactions -------
   async createTransaction(insertTransaction: InsertTransaction): Promise<Transaction> {
-    const [transaction] = await db.insert(transactions).values(insertTransaction).returning();
-    return transaction;
+    const id = (insertTransaction as any).id ?? crypto.randomUUID();
+    await db.insert(transactions).values({ ...(insertTransaction as any), id });
+    const [tx] = await db.select().from(transactions).where(eq(transactions.id, id));
+    return tx!;
   }
 
   async getTransactionsByUser(userId: string, type?: string): Promise<Transaction[]> {
-    if (type && type !== 'all') {
-      return db.select().from(transactions).where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.type, type as any)
-        )
-      ).orderBy(desc(transactions.createdAt));
+    if (type && type !== "all") {
+      return db
+        .select()
+        .from(transactions)
+        .where(and(eq(transactions.userId, userId), eq(transactions.type as any, type as any)))
+        .orderBy(desc(transactions.createdAt));
     }
-    return db.select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.createdAt));
+    return db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.userId, userId))
+      .orderBy(desc(transactions.createdAt));
   }
 
   async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction> {
-    const [transaction] = await db
-      .update(transactions)
-      .set(updates)
-      .where(eq(transactions.id, id))
-      .returning();
-    return transaction;
+    await db.update(transactions).set(updates as any).where(eq(transactions.id, id));
+    const [tx] = await db.select().from(transactions).where(eq(transactions.id, id));
+    return tx!;
   }
 
+  // ------- Purchases -------
   async createPurchase(insertPurchase: InsertPurchase): Promise<Purchase> {
-    const [purchase] = await db.insert(purchases).values(insertPurchase).returning();
-    return purchase;
+    const id = (insertPurchase as any).id ?? crypto.randomUUID();
+    await db.insert(purchases).values({ ...(insertPurchase as any), id });
+    const [p] = await db.select().from(purchases).where(eq(purchases.id, id));
+    return p!;
   }
 
   async getPurchasesByUser(userId: string): Promise<any[]> {
+    // Requer relations configuradas no schema (db.query.*)
+    // with: { raspadinha: true } deve existir via relations()
     return db.query.purchases.findMany({
       where: eq(purchases.userId, userId),
-      with: {
-        raspadinha: true,
-      },
+      with: { raspadinha: true },
       orderBy: desc(purchases.createdAt),
-    });
+    } as any);
   }
 
   async getPurchaseById(id: string): Promise<Purchase | undefined> {
@@ -220,14 +243,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePurchase(id: string, updates: Partial<Purchase>): Promise<Purchase> {
-    const [purchase] = await db
-      .update(purchases)
-      .set(updates)
-      .where(eq(purchases.id, id))
-      .returning();
-    return purchase;
+    await db.update(purchases).set(updates as any).where(eq(purchases.id, id));
+    const [p] = await db.select().from(purchases).where(eq(purchases.id, id));
+    return p!;
   }
 
+  // ------- Affiliates -------
   async getAffiliate(userId: string): Promise<Affiliate | undefined> {
     const [affiliate] = await db.select().from(affiliates).where(eq(affiliates.userId, userId));
     return affiliate || undefined;
@@ -239,31 +260,39 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAffiliateByCode(code: string): Promise<Affiliate | undefined> {
-    const [affiliate] = await db.select().from(affiliates).where(eq(affiliates.referralCode, code));
+    const [affiliate] = await db
+      .select()
+      .from(affiliates)
+      .where(eq(affiliates.referralCode, code));
     return affiliate || undefined;
   }
 
   async createAffiliate(insertAffiliate: InsertAffiliate): Promise<Affiliate> {
-    const [affiliate] = await db.insert(affiliates).values(insertAffiliate).returning();
-    return affiliate;
+    const id = (insertAffiliate as any).id ?? crypto.randomUUID();
+    await db.insert(affiliates).values({ ...(insertAffiliate as any), id });
+    const [a] = await db.select().from(affiliates).where(eq(affiliates.id, id));
+    return a!;
   }
 
   async updateAffiliate(affiliateId: string, updates: Partial<Affiliate>): Promise<Affiliate> {
-    const [affiliate] = await db
-      .update(affiliates)
-      .set(updates)
-      .where(eq(affiliates.id, affiliateId))
-      .returning();
-    return affiliate;
+    await db.update(affiliates).set(updates as any).where(eq(affiliates.id, affiliateId));
+    const [a] = await db.select().from(affiliates).where(eq(affiliates.id, affiliateId));
+    return a!;
   }
 
+  // ------- Referrals -------
   async createReferral(insertReferral: InsertReferral): Promise<Referral> {
-    const [referral] = await db.insert(referrals).values(insertReferral).returning();
-    return referral;
+    const id = (insertReferral as any).id ?? crypto.randomUUID();
+    await db.insert(referrals).values({ ...(insertReferral as any), id });
+    const [r] = await db.select().from(referrals).where(eq(referrals.id, id));
+    return r!;
   }
 
   async getReferralByUserId(userId: string): Promise<Referral | undefined> {
-    const [referral] = await db.select().from(referrals).where(eq(referrals.referredUserId, userId));
+    const [referral] = await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.referredUserId, userId));
     return referral || undefined;
   }
 
@@ -272,25 +301,34 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateReferral(id: string, updates: Partial<Referral>): Promise<Referral> {
-    const [referral] = await db
-      .update(referrals)
-      .set(updates)
-      .where(eq(referrals.id, id))
-      .returning();
-    return referral;
+    await db.update(referrals).set(updates as any).where(eq(referrals.id, id));
+    const [r] = await db.select().from(referrals).where(eq(referrals.id, id));
+    return r!;
   }
 
+  // ------- Commissions -------
   async createCommission(insertCommission: InsertCommission): Promise<Commission> {
-    const [commission] = await db.insert(commissions).values(insertCommission).returning();
-    return commission;
+    const id = (insertCommission as any).id ?? crypto.randomUUID();
+    await db.insert(commissions).values({ ...(insertCommission as any), id });
+    const [c] = await db.select().from(commissions).where(eq(commissions.id, id));
+    return c!;
   }
 
   async getCommissionsByAffiliate(affiliateId: string): Promise<Commission[]> {
-    return db.select().from(commissions).where(eq(commissions.affiliateId, affiliateId)).orderBy(desc(commissions.createdAt));
+    return db
+      .select()
+      .from(commissions)
+      .where(eq(commissions.affiliateId, affiliateId))
+      .orderBy(desc(commissions.createdAt));
   }
 
+  // ------- Bonuses -------
   async getBonusesByUser(userId: string): Promise<Bonus[]> {
-    return db.select().from(bonuses).where(eq(bonuses.userId, userId)).orderBy(desc(bonuses.createdAt));
+    return db
+      .select()
+      .from(bonuses)
+      .where(eq(bonuses.userId, userId))
+      .orderBy(desc(bonuses.createdAt));
   }
 }
 
