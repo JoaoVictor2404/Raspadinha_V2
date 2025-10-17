@@ -11,6 +11,8 @@ import {
   deliveries,
   referrals,
   commissions,
+  deposits,
+  withdrawals,
   type User,
   type InsertUser,
   type Wallet,
@@ -29,15 +31,19 @@ import {
   type InsertReferral,
   type Commission,
   type InsertCommission,
+  type Deposit,
+  type InsertDeposit,
+  type Withdrawal,
+  type InsertWithdrawal,
 } from "@shared/schema";
-import { db, pool } from "./db";
+import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
 import session from "express-session";
-import MySQLStoreFactory from "express-mysql-session";
 import { randomUUID } from "crypto";
 import type { Store } from "express-session";
+import MemoryStore from "memorystore";
 
-const MySQLStore = MySQLStoreFactory(session as any);
+const MemoryStoreFactory = MemoryStore(session);
 
 // Helper function to generate UUIDs
 function generateId(): string {
@@ -91,6 +97,18 @@ export interface IStorage {
   // Bonus methods
   getBonusesByUser(userId: string): Promise<Bonus[]>;
 
+  // Deposit methods
+  createDeposit(deposit: InsertDeposit): Promise<Deposit>;
+  getDeposit(id: string): Promise<Deposit | undefined>;
+  getDepositsByUser(userId: string): Promise<Deposit[]>;
+  updateDeposit(id: string, updates: Partial<Deposit>): Promise<Deposit>;
+
+  // Withdrawal methods
+  createWithdrawal(withdrawal: InsertWithdrawal): Promise<Withdrawal>;
+  getWithdrawal(id: string): Promise<Withdrawal | undefined>;
+  getWithdrawalsByUser(userId: string): Promise<Withdrawal[]>;
+  updateWithdrawal(id: string, updates: Partial<Withdrawal>): Promise<Withdrawal>;
+
   // Session store
   sessionStore: Store;
 }
@@ -99,7 +117,9 @@ export class DatabaseStorage implements IStorage {
   sessionStore: Store;
 
   constructor() {
-    this.sessionStore = new MySQLStore({}, pool as any);
+    this.sessionStore = new MemoryStoreFactory({
+      checkPeriod: 86400000, // 24h
+    });
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -162,17 +182,25 @@ export class DatabaseStorage implements IStorage {
       balanceStandard: "0",
       balancePrizes: "0",
       balanceBonus: "0",
+      pendingWithdrawal: "0",
       ...insertWallet,
       updatedAt: new Date(),
     };
     await db.insert(wallets).values(wallet);
-    return wallet;
+    return wallet as Wallet;
   }
 
   async updateWallet(userId: string, updates: Partial<Wallet>): Promise<Wallet> {
+    // Ensure pendingWithdrawal has a default value
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      pendingWithdrawal: updates.pendingWithdrawal ?? "0",
+    };
+    
     await db
       .update(wallets)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(wallets.userId, userId));
     
     const wallet = await this.getWallet(userId);
@@ -360,6 +388,160 @@ export class DatabaseStorage implements IStorage {
 
   async getBonusesByUser(userId: string): Promise<Bonus[]> {
     return db.select().from(bonuses).where(eq(bonuses.userId, userId)).orderBy(desc(bonuses.createdAt));
+  }
+
+  async createDeposit(insertDeposit: InsertDeposit): Promise<Deposit> {
+    const deposit = {
+      id: generateId(),
+      status: insertDeposit.status || "pending",
+      pixKey: insertDeposit.pixKey || null,
+      ...insertDeposit,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.insert(deposits).values(deposit as any);
+    return deposit as Deposit;
+  }
+
+  async getDeposit(id: string): Promise<Deposit | undefined> {
+    const [deposit] = await db.select().from(deposits).where(eq(deposits.id, id));
+    return deposit || undefined;
+  }
+
+  async getDepositsByUser(userId: string): Promise<Deposit[]> {
+    return db.select().from(deposits).where(eq(deposits.userId, userId)).orderBy(desc(deposits.createdAt));
+  }
+
+  async updateDeposit(id: string, updates: Partial<Deposit>): Promise<Deposit> {
+    await db
+      .update(deposits)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(deposits.id, id));
+    
+    const deposit = await this.getDeposit(id);
+    return deposit!;
+  }
+
+  async createWithdrawal(insertWithdrawal: InsertWithdrawal): Promise<Withdrawal> {
+    const withdrawal = {
+      id: generateId(),
+      status: insertWithdrawal.status || "pending",
+      completedAt: insertWithdrawal.completedAt || null,
+      failedReason: insertWithdrawal.failedReason || null,
+      ...insertWithdrawal,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.insert(withdrawals).values(withdrawal as any);
+    return withdrawal as Withdrawal;
+  }
+
+  async getWithdrawal(id: string): Promise<Withdrawal | undefined> {
+    const [withdrawal] = await db.select().from(withdrawals).where(eq(withdrawals.id, id));
+    return withdrawal || undefined;
+  }
+
+  async getWithdrawalsByUser(userId: string): Promise<Withdrawal[]> {
+    return db.select().from(withdrawals).where(eq(withdrawals.userId, userId)).orderBy(desc(withdrawals.createdAt));
+  }
+
+  async updateWithdrawal(id: string, updates: Partial<Withdrawal>): Promise<Withdrawal> {
+    await db
+      .update(withdrawals)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(withdrawals.id, id));
+    
+    const withdrawal = await this.getWithdrawal(id);
+    return withdrawal!;
+  }
+
+  // ============================================================================
+  // ADMIN METHODS
+  // ============================================================================
+
+  // Users
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  // Transactions
+  async getAllTransactions(): Promise<Transaction[]> {
+    return db.select().from(transactions).orderBy(desc(transactions.createdAt));
+  }
+
+  // Deposits
+  async getAllDeposits(): Promise<Deposit[]> {
+    return db.select().from(deposits).orderBy(desc(deposits.createdAt));
+  }
+
+  // Withdrawals
+  async getAllWithdrawals(): Promise<Withdrawal[]> {
+    return db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt));
+  }
+
+  // Affiliates
+  async getAllAffiliates(): Promise<Affiliate[]> {
+    return db.select().from(affiliates).orderBy(desc(affiliates.createdAt));
+  }
+
+  // Commissions
+  async getAllCommissions(): Promise<Commission[]> {
+    return db.select().from(commissions).orderBy(desc(commissions.createdAt));
+  }
+
+  async updateCommission(id: string, updates: Partial<Commission>): Promise<Commission> {
+    await db.update(commissions).set(updates).where(eq(commissions.id, id));
+    const [commission] = await db.select().from(commissions).where(eq(commissions.id, id));
+    return commission!;
+  }
+
+  // Raspadinhas
+  async createRaspadinha(insertRaspadinha: InsertRaspadinha): Promise<Raspadinha> {
+    const raspadinha = {
+      id: generateId(),
+      ...insertRaspadinha,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.insert(raspadinhas).values(raspadinha as any);
+    return raspadinha as Raspadinha;
+  }
+
+  async updateRaspadinha(id: string, updates: Partial<Raspadinha>): Promise<Raspadinha> {
+    await db.update(raspadinhas).set(updates).where(eq(raspadinhas.id, id));
+    const [raspadinha] = await db.select().from(raspadinhas).where(eq(raspadinhas.id, id));
+    return raspadinha!;
+  }
+
+  async deleteRaspadinha(id: string): Promise<void> {
+    await db.delete(raspadinhas).where(eq(raspadinhas.id, id));
+  }
+
+  // Prizes
+  async createPrize(insertPrize: any): Promise<Prize> {
+    const prize = {
+      id: generateId(),
+      ...insertPrize,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.insert(prizes).values(prize as any);
+    return prize as Prize;
+  }
+
+  async updatePrize(id: string, updates: Partial<Prize>): Promise<Prize> {
+    await db.update(prizes).set(updates).where(eq(prizes.id, id));
+    const [prize] = await db.select().from(prizes).where(eq(prizes.id, id));
+    return prize!;
+  }
+
+  async deletePrize(id: string): Promise<void> {
+    await db.delete(prizes).where(eq(prizes.id, id));
   }
 }
 

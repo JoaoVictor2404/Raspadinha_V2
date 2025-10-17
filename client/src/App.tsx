@@ -20,11 +20,17 @@ import ConfiguracoesPage from "@/pages/configuracoes-page";
 import TermosPage from "@/pages/termos-page";
 import PrivacidadePage from "@/pages/privacidade-page";
 import TermosBonusPage from "@/pages/termos-bonus-page";
+import AdminLoginPage from "@/pages/admin-login-page";
+import AdminDashboardPage from "@/pages/admin-dashboard-page";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
     <Switch>
+      {/* Admin Routes */}
+      <Route path="/adminludixoffc" component={AdminLoginPage} />
+      <Route path="/adminludixoffc/dashboard" component={AdminDashboardPage} />
+      
       {/* Public Routes */}
       <Route path="/auth" component={AuthPage} />
       <Route path="/termos" component={TermosPage} />
