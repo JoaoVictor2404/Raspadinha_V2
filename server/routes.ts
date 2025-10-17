@@ -3,18 +3,6 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { randomUUID } from "crypto";
-import { getPaymentProvider } from "./payment-providers";
-import {
-  rateLimit,
-  validateAmount,
-  validateCPF,
-  sanitizeCPF,
-  MIN_DEPOSIT,
-  MAX_DEPOSIT,
-  MIN_WITHDRAWAL,
-  MAX_WITHDRAWAL,
-  RATE_LIMITS,
-} from "./security-helpers";
 
 // Extend session type for admin
 declare module 'express-session' {
