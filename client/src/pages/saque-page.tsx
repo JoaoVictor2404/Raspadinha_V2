@@ -15,14 +15,15 @@ import { useToast } from "@/hooks/use-toast";
 import type { Wallet } from "@shared/schema";
 
 const QUICK_AMOUNTS = [20, 50, 100, 200];
-const MIN_WITHDRAWAL = 20;
+const MIN_WITHDRAWAL = 10;
 const MAX_WITHDRAWAL = 10000;
 
 export default function SaquePage() {
   const { toast } = useToast();
   const [amount, setAmount] = useState<number>(50);
   const [pixKey, setPixKey] = useState("");
-  const [pixKeyType, setPixKeyType] = useState<string>("cpf");
+  const [pixKeyType, setPixKeyType] = useState<string>("CPF");
+  const [recipientDocument, setRecipientDocument] = useState("");
   const [customAmount, setCustomAmount] = useState("");
   const [withdrawalSuccess, setWithdrawalSuccess] = useState(false);
 
@@ -32,10 +33,11 @@ export default function SaquePage() {
 
   const withdrawalMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/withdrawals", {
+      const res = await apiRequest("POST", "/api/withdrawals/create", {
         amount,
         pixKey,
         pixKeyType,
+        recipientDocument,
       });
       return res.json();
     },
@@ -71,6 +73,15 @@ export default function SaquePage() {
   };
 
   const handleWithdraw = () => {
+    if (!recipientDocument.trim()) {
+      toast({
+        variant: "destructive",
+        title: "CPF obrigatório",
+        description: "Informe seu CPF cadastrado na chave PIX",
+      });
+      return;
+    }
+
     if (!pixKey.trim()) {
       toast({
         variant: "destructive",
@@ -219,6 +230,24 @@ export default function SaquePage() {
               />
             </div>
 
+            {/* CPF */}
+            <div className="mb-6">
+              <Label htmlFor="recipient-document" className="mb-2 block">
+                CPF do titular
+              </Label>
+              <Input
+                id="recipient-document"
+                type="text"
+                placeholder="000.000.000-00"
+                value={recipientDocument}
+                onChange={(e) => setRecipientDocument(e.target.value)}
+                data-testid="input-recipient-document"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Informe o CPF cadastrado na chave PIX
+              </p>
+            </div>
+
             {/* PIX Key Type */}
             <div className="mb-6">
               <Label htmlFor="pix-type" className="mb-2 block">
@@ -229,10 +258,10 @@ export default function SaquePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cpf">CPF</SelectItem>
-                  <SelectItem value="email">E-mail</SelectItem>
-                  <SelectItem value="telefone">Telefone</SelectItem>
-                  <SelectItem value="aleatoria">Chave aleatória</SelectItem>
+                  <SelectItem value="CPF">CPF</SelectItem>
+                  <SelectItem value="EMAIL">E-mail</SelectItem>
+                  <SelectItem value="PHONE">Telefone</SelectItem>
+                  <SelectItem value="RANDOM">Chave aleatória</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -246,11 +275,11 @@ export default function SaquePage() {
                 id="pix-key"
                 type="text"
                 placeholder={
-                  pixKeyType === "cpf"
+                  pixKeyType === "CPF"
                     ? "000.000.000-00"
-                    : pixKeyType === "email"
+                    : pixKeyType === "EMAIL"
                     ? "seu@email.com"
-                    : pixKeyType === "telefone"
+                    : pixKeyType === "PHONE"
                     ? "(00) 00000-0000"
                     : "Chave aleatória"
                 }
@@ -276,7 +305,12 @@ export default function SaquePage() {
               className="w-full"
               size="lg"
               onClick={handleWithdraw}
-              disabled={withdrawalMutation.isPending || !pixKey.trim() || amount < MIN_WITHDRAWAL}
+              disabled={
+                withdrawalMutation.isPending || 
+                !pixKey.trim() || 
+                !recipientDocument.trim() || 
+                amount < MIN_WITHDRAWAL
+              }
               data-testid="button-withdraw"
             >
               {withdrawalMutation.isPending ? "Processando..." : "Solicitar saque"}

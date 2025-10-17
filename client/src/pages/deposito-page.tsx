@@ -34,20 +34,45 @@ export default function DepositoPage() {
   const [pixCode, setPixCode] = useState("");
   const [copied, setCopied] = useState(false);
 
+  const [depositId, setDepositId] = useState<string>("");
+  const [qrCodeBase64, setQrCodeBase64] = useState<string>("");
+
   const generatePixMutation = useMutation({
     mutationFn: async (depositAmount: number) => {
-      const res = await apiRequest("POST", "/api/deposits", { amount: depositAmount });
+      const res = await apiRequest("POST", "/api/deposits/create", { amount: depositAmount });
       return res.json();
     },
     onSuccess: (data) => {
-      setPixCode(data.pixCode || "00020126360014br.gov.bcb.pix0114+5511999999999520400005303986540520.005802BR5925Raspadinha6009Sao Paulo62070503***6304ABCD");
+      setDepositId(data.depositId);
+      setPixCode(data.qrCode || "");
+      setQrCodeBase64(data.qrCodeBase64 || "");
       setPixModalOpen(true);
       
-      // Invalidar queries após sucesso no PIX
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      }, 2500); // Aguarda auto-complete do backend (2s) + margem
+      // Poll for payment confirmation
+      const pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/deposits/${data.depositId}`, {
+            credentials: "include",
+          });
+          const deposit = await res.json();
+          
+          if (deposit.status === "completed") {
+            clearInterval(pollInterval);
+            queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+            toast({
+              title: "Pagamento confirmado!",
+              description: "Seu saldo foi atualizado",
+            });
+            setPixModalOpen(false);
+          }
+        } catch (err) {
+          console.error("Error polling deposit:", err);
+        }
+      }, 3000); // Poll every 3 seconds
+
+      // Stop polling after 10 minutes
+      setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
     },
     onError: (error: Error) => {
       toast({
@@ -179,14 +204,25 @@ export default function DepositoPage() {
             <DialogTitle>PIX Gerado</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* QR Code Placeholder */}
+            {/* QR Code */}
             <div className="aspect-square rounded-lg bg-white p-4 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-48 h-48 bg-black/10 rounded-lg mb-2 flex items-center justify-center">
-                  <span className="text-4xl">📱</span>
+              {qrCodeBase64 ? (
+                <div className="text-center">
+                  <img 
+                    src={`data:image/png;base64,${qrCodeBase64}`} 
+                    alt="QR Code PIX" 
+                    className="w-64 h-64 mx-auto mb-2"
+                  />
+                  <p className="text-sm text-black/60">Escaneie com seu app de banco</p>
                 </div>
-                <p className="text-sm text-black/60">Escaneie com seu app de banco</p>
-              </div>
+              ) : (
+                <div className="text-center">
+                  <div className="w-48 h-48 bg-black/10 rounded-lg mb-2 flex items-center justify-center">
+                    <span className="text-4xl">📱</span>
+                  </div>
+                  <p className="text-sm text-black/60">Gerando QR Code...</p>
+                </div>
+              )}
             </div>
 
             {/* Pix Copia e Cola */}
