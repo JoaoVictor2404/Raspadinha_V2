@@ -71,6 +71,7 @@ export default function AdminDashboardPage() {
     imageUrl: ""
   });
   const [affiliateBalance, setAffiliateBalance] = useState("");
+  const [affiliatePercentage, setAffiliatePercentage] = useState("");
 
   // Fetch admin status
   const { data: adminStatus, isLoading: isCheckingAdmin } = useQuery<any>({
@@ -179,15 +180,19 @@ export default function AdminDashboardPage() {
   });
 
   const updateAffiliateMutation = useMutation({
-    mutationFn: async ({ id, balance }: { id: string; balance: string }) => {
-      return apiRequest("PATCH", `/api/admin/affiliates/${id}`, { commissionBalance: balance });
+    mutationFn: async ({ id, balance, percentage }: { id: string; balance: string; percentage: string }) => {
+      return apiRequest("PATCH", `/api/admin/affiliates/${id}`, { 
+        commissionBalance: balance,
+        commissionPercentage: percentage 
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/affiliates"] });
       setEditAffiliateModalOpen(false);
       setSelectedAffiliate(null);
       setAffiliateBalance("");
-      toast({ title: "Sucesso", description: "Saldo do afiliado atualizado!" });
+      setAffiliatePercentage("");
+      toast({ title: "Sucesso", description: "Afiliado atualizado!" });
     },
     onError: (error: any) => {
       toast({ title: "Erro", description: error.message, variant: "destructive" });
@@ -297,6 +302,7 @@ export default function AdminDashboardPage() {
   function openEditAffiliate(affiliate: any) {
     setSelectedAffiliate(affiliate);
     setAffiliateBalance(affiliate.commissionBalance);
+    setAffiliatePercentage(affiliate.commissionPercentage || "10.00");
     setEditAffiliateModalOpen(true);
   }
 
@@ -565,9 +571,10 @@ export default function AdminDashboardPage() {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b">
-                          <th className="text-left py-2 px-4">Username</th>
-                          <th className="text-left py-2 px-4">Email</th>
                           <th className="text-left py-2 px-4">Nome</th>
+                          <th className="text-left py-2 px-4">Email</th>
+                          <th className="text-left py-2 px-4">Telefone</th>
+                          <th className="text-left py-2 px-4">CPF</th>
                           <th className="text-left py-2 px-4">Data Cadastro</th>
                           <th className="text-left py-2 px-4">Ações</th>
                         </tr>
@@ -575,9 +582,10 @@ export default function AdminDashboardPage() {
                       <tbody>
                         {users.map((user: any) => (
                           <tr key={user.id} className="border-b hover-elevate">
-                            <td className="py-2 px-4">{user.username}</td>
-                            <td className="py-2 px-4">{user.email || "-"}</td>
                             <td className="py-2 px-4">{user.name || "-"}</td>
+                            <td className="py-2 px-4">{user.email || "-"}</td>
+                            <td className="py-2 px-4">{user.phone || "-"}</td>
+                            <td className="py-2 px-4">{user.cpf || "-"}</td>
                             <td className="py-2 px-4">{new Date(user.createdAt).toLocaleDateString('pt-BR')}</td>
                             <td className="py-2 px-4">
                               <Button 
@@ -785,6 +793,7 @@ export default function AdminDashboardPage() {
                           <th className="text-left py-2 px-4">Código</th>
                           <th className="text-left py-2 px-4">Total Indicações</th>
                           <th className="text-left py-2 px-4">Indicações Ativas</th>
+                          <th className="text-left py-2 px-4">Taxa (%)</th>
                           <th className="text-left py-2 px-4">Saldo Comissões</th>
                           <th className="text-left py-2 px-4">Ações</th>
                         </tr>
@@ -795,6 +804,7 @@ export default function AdminDashboardPage() {
                             <td className="py-2 px-4 font-mono">{aff.referralCode}</td>
                             <td className="py-2 px-4">{aff.totalReferrals}</td>
                             <td className="py-2 px-4">{aff.activeReferrals}</td>
+                            <td className="py-2 px-4">{aff.commissionPercentage || "10.00"}%</td>
                             <td className="py-2 px-4">R$ {aff.commissionBalance}</td>
                             <td className="py-2 px-4">
                               <Button 
@@ -1118,7 +1128,7 @@ export default function AdminDashboardPage() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="affiliate-balance">Novo Saldo (R$)</Label>
+              <Label htmlFor="affiliate-balance">Saldo de Comissões (R$)</Label>
               <Input 
                 id="affiliate-balance" 
                 type="number" 
@@ -1128,11 +1138,22 @@ export default function AdminDashboardPage() {
                 data-testid="input-affiliate-balance"
               />
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="affiliate-percentage">Taxa de Comissão (%)</Label>
+              <Input 
+                id="affiliate-percentage" 
+                type="number" 
+                step="0.01"
+                value={affiliatePercentage} 
+                onChange={(e) => setAffiliatePercentage(e.target.value)}
+                data-testid="input-affiliate-percentage"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditAffiliateModalOpen(false)}>Cancelar</Button>
             <Button 
-              onClick={() => updateAffiliateMutation.mutate({ id: selectedAffiliate.id, balance: affiliateBalance })} 
+              onClick={() => updateAffiliateMutation.mutate({ id: selectedAffiliate.id, balance: affiliateBalance, percentage: affiliatePercentage })} 
               disabled={updateAffiliateMutation.isPending}
               data-testid="button-confirm-edit-affiliate"
             >
@@ -1151,8 +1172,8 @@ export default function AdminDashboardPage() {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Username</p>
-                <p className="text-sm">{selectedUser?.username}</p>
+                <p className="text-sm font-medium text-muted-foreground">Nome Completo</p>
+                <p className="text-sm">{selectedUser?.name || "-"}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Email</p>
@@ -1161,8 +1182,18 @@ export default function AdminDashboardPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Nome</p>
-                <p className="text-sm">{selectedUser?.name || "-"}</p>
+                <p className="text-sm font-medium text-muted-foreground">Telefone</p>
+                <p className="text-sm">{selectedUser?.phone || "-"}</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">CPF</p>
+                <p className="text-sm">{selectedUser?.cpf || "-"}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Data de Nascimento</p>
+                <p className="text-sm">{selectedUser?.birthDate ? new Date(selectedUser.birthDate).toLocaleDateString('pt-BR') : "-"}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Data Cadastro</p>

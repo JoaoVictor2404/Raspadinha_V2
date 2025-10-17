@@ -14,15 +14,17 @@ import { useToast } from "@/hooks/use-toast";
 import { X } from "lucide-react";
 
 const loginSchema = z.object({
-  username: z.string().min(1, "Email ou telefone obrigatório"),
+  email: z.string().email("Email inválido"),
   password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres"),
   rememberMe: z.boolean().optional(),
 });
 
 const registerSchema = z.object({
-  username: z.string().min(3, "Nome completo obrigatório"),
-  email: z.string().email("Email inválido").optional().or(z.literal("")),
-  telefone: z.string().min(10, "Telefone obrigatório"),
+  name: z.string().min(3, "Nome completo obrigatório"),
+  phone: z.string().min(10, "Telefone obrigatório"),
+  birthDate: z.string().min(1, "Data de nascimento obrigatória"),
+  cpf: z.string().min(11, "CPF obrigatório"),
+  email: z.string().email("Email inválido"),
   password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres"),
 });
 
@@ -47,7 +49,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = "login", onSuccess 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      username: "",
+      email: "",
       password: "",
       rememberMe: false,
     },
@@ -56,9 +58,11 @@ export function AuthModal({ open, onOpenChange, defaultTab = "login", onSuccess 
   const registerForm = useForm({
     resolver: zodResolver(registerSchema),
     defaultValues: {
-      username: "",
+      name: "",
+      phone: "",
+      birthDate: "",
+      cpf: "",
       email: "",
-      telefone: "",
       password: "",
     },
   });
@@ -75,13 +79,14 @@ export function AuthModal({ open, onOpenChange, defaultTab = "login", onSuccess 
         description: "Bem-vindo de volta",
       });
       onOpenChange(false);
+      loginForm.reset();
       onSuccess?.();
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         variant: "destructive",
         title: "Erro no login",
-        description: "Credenciais inválidas",
+        description: error.message || "Credenciais inválidas",
       });
     },
   });
@@ -104,13 +109,14 @@ export function AuthModal({ open, onOpenChange, defaultTab = "login", onSuccess 
         description: "Cadastro realizado com sucesso",
       });
       onOpenChange(false);
+      registerForm.reset();
       onSuccess?.();
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         variant: "destructive",
         title: "Erro no cadastro",
-        description: "Não foi possível criar a conta",
+        description: error.message || "Não foi possível criar a conta",
       });
     },
   });
@@ -174,7 +180,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = "login", onSuccess 
           </div>
 
           {/* Right Panel - Form */}
-          <div className="p-8 bg-card">
+          <div className="p-8 bg-card max-h-[90vh] overflow-y-auto">
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "login" | "register")} className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-6">
                 <TabsTrigger 
@@ -204,17 +210,18 @@ export function AuthModal({ open, onOpenChange, defaultTab = "login", onSuccess 
 
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="login-username">E-mail</Label>
+                      <Label htmlFor="login-email">E-mail</Label>
                       <Input
-                        id="login-username"
+                        id="login-email"
+                        type="email"
                         placeholder="Digite seu e-mail"
                         className="bg-background border-border"
                         data-testid="input-login-email"
-                        {...loginForm.register("username")}
+                        {...loginForm.register("email")}
                       />
-                      {loginForm.formState.errors.username && (
+                      {loginForm.formState.errors.email && (
                         <p className="text-sm text-destructive">
-                          {loginForm.formState.errors.username.message}
+                          {loginForm.formState.errors.email.message}
                         </p>
                       )}
                     </div>
@@ -303,27 +310,79 @@ export function AuthModal({ open, onOpenChange, defaultTab = "login", onSuccess 
                         placeholder="Digite seu nome completo"
                         className="bg-background border-border"
                         data-testid="input-register-name"
-                        {...registerForm.register("username")}
+                        {...registerForm.register("name")}
                       />
-                      {registerForm.formState.errors.username && (
+                      {registerForm.formState.errors.name && (
                         <p className="text-sm text-destructive">
-                          {registerForm.formState.errors.username.message}
+                          {registerForm.formState.errors.name.message}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="register-telefone">Telefone</Label>
+                      <Label htmlFor="register-phone">Número de telefone</Label>
                       <Input
-                        id="register-telefone"
+                        id="register-phone"
                         placeholder="(00) 00000-0000"
                         className="bg-background border-border"
                         data-testid="input-register-phone"
-                        {...registerForm.register("telefone")}
+                        {...registerForm.register("phone")}
                       />
-                      {registerForm.formState.errors.telefone && (
+                      {registerForm.formState.errors.phone && (
                         <p className="text-sm text-destructive">
-                          {registerForm.formState.errors.telefone.message}
+                          {registerForm.formState.errors.phone.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="register-birthdate">Data de nascimento</Label>
+                      <Input
+                        id="register-birthdate"
+                        type="date"
+                        className="bg-background border-border"
+                        data-testid="input-register-birthdate"
+                        {...registerForm.register("birthDate")}
+                      />
+                      {registerForm.formState.errors.birthDate && (
+                        <p className="text-sm text-destructive">
+                          {registerForm.formState.errors.birthDate.message}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Você deve ter 18 anos ou mais para se cadastrar
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="register-cpf">CPF ou CNPJ</Label>
+                      <Input
+                        id="register-cpf"
+                        placeholder="000.000.000-00"
+                        className="bg-background border-border"
+                        data-testid="input-register-cpf"
+                        {...registerForm.register("cpf")}
+                      />
+                      {registerForm.formState.errors.cpf && (
+                        <p className="text-sm text-destructive">
+                          {registerForm.formState.errors.cpf.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="register-email">Gmail</Label>
+                      <Input
+                        id="register-email"
+                        type="email"
+                        placeholder="seuemail@gmail.com"
+                        className="bg-background border-border"
+                        data-testid="input-register-email"
+                        {...registerForm.register("email")}
+                      />
+                      {registerForm.formState.errors.email && (
+                        <p className="text-sm text-destructive">
+                          {registerForm.formState.errors.email.message}
                         </p>
                       )}
                     </div>

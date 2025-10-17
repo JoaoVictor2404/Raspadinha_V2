@@ -1,150 +1,148 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, numeric, timestamp, integer, boolean, pgEnum } from "drizzle-orm/pg-core";
+import { mysqlTable, text, varchar, decimal, datetime, int, boolean, mysqlEnum } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
-// Enums
-export const transactionTypeEnum = pgEnum("transaction_type", ["deposit", "withdrawal", "purchase", "prize", "bonus", "commission"]);
-export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "failed", "cancelled"]);
-export const categoryEnum = pgEnum("category", ["gold-rush", "lucky-animals", "vegas-lights", "mythic-gods", "crypto-scratch", "candy-mania"]);
-export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "processing", "shipped", "delivered", "cancelled"]);
-
 // Users table
-export const users = pgTable("users", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const users = mysqlTable("users", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   username: varchar("username", { length: 255 }).notNull().unique(),
   password: varchar("password", { length: 255 }).notNull(),
-  email: varchar("email", { length: 255 }),
-  name: varchar("name", { length: 255 }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  birthDate: datetime("birth_date").notNull(),
+  cpf: varchar("cpf", { length: 14 }).notNull().unique(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Raspadinhas (scratch cards) table
-export const raspadinhas = pgTable("raspadinhas", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const raspadinhas = mysqlTable("raspadinhas", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   slug: varchar("slug", { length: 255 }).notNull().unique(),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
-  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   imageUrl: text("image_url"),
-  category: categoryEnum("category").notNull().default("gold-rush"),
-  maxPrize: numeric("max_prize", { precision: 10, scale: 2 }).notNull(),
+  category: mysqlEnum("category", ["gold-rush", "lucky-animals", "vegas-lights", "mythic-gods", "crypto-scratch", "candy-mania"]).notNull().default("gold-rush"),
+  maxPrize: decimal("max_prize", { precision: 10, scale: 2 }).notNull(),
   badge: varchar("badge", { length: 255 }),
   isActive: boolean("is_active").default(true).notNull(),
-  stock: integer("stock").default(1000).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  stock: int("stock").default(1000).notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Prize tiers for each raspadinha
-export const prizes = pgTable("prizes", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const prizes = mysqlTable("prizes", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   raspadinhaId: varchar("raspadinha_id", { length: 36 }).references(() => raspadinhas.id).notNull(),
-  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   label: varchar("label", { length: 255 }).notNull(),
-  probability: numeric("probability", { precision: 5, scale: 4 }).notNull(), // 0.0001 = 0.01%
+  probability: decimal("probability", { precision: 5, scale: 4 }).notNull(),
   imageUrl: text("image_url"),
 });
 
 // User wallet/balance
-export const wallets = pgTable("wallets", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const wallets = mysqlTable("wallets", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull().unique(),
-  balanceTotal: numeric("balance_total", { precision: 10, scale: 2 }).default("0").notNull(),
-  balanceStandard: numeric("balance_standard", { precision: 10, scale: 2 }).default("0").notNull(),
-  balancePrizes: numeric("balance_prizes", { precision: 10, scale: 2 }).default("0").notNull(),
-  balanceBonus: numeric("balance_bonus", { precision: 10, scale: 2 }).default("0").notNull(),
-  pendingWithdrawal: numeric("pending_withdrawal", { precision: 10, scale: 2 }).default("0").notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  balanceTotal: decimal("balance_total", { precision: 10, scale: 2 }).default("0").notNull(),
+  balanceStandard: decimal("balance_standard", { precision: 10, scale: 2 }).default("0").notNull(),
+  balancePrizes: decimal("balance_prizes", { precision: 10, scale: 2 }).default("0").notNull(),
+  balanceBonus: decimal("balance_bonus", { precision: 10, scale: 2 }).default("0").notNull(),
+  pendingWithdrawal: decimal("pending_withdrawal", { precision: 10, scale: 2 }).default("0").notNull(),
+  updatedAt: datetime("updated_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Transactions (deposits, withdrawals, purchases, prizes)
-export const transactions = pgTable("transactions", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const transactions = mysqlTable("transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
-  type: transactionTypeEnum("type").notNull(),
-  status: transactionStatusEnum("status").default("pending").notNull(),
-  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  type: mysqlEnum("type", ["deposit", "withdrawal", "purchase", "prize", "bonus", "commission"]).notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "failed", "cancelled"]).default("pending").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   description: text("description"),
   pixCode: text("pix_code"),
   affiliateId: varchar("affiliate_id", { length: 36 }).references(() => affiliates.id),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Purchase history
-export const purchases = pgTable("purchases", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const purchases = mysqlTable("purchases", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
   raspadinhaId: varchar("raspadinha_id", { length: 36 }).references(() => raspadinhas.id).notNull(),
   transactionId: varchar("transaction_id", { length: 36 }).references(() => transactions.id),
-  prizeWon: numeric("prize_won", { precision: 10, scale: 2 }),
+  prizeWon: decimal("prize_won", { precision: 10, scale: 2 }),
   prizeLabel: varchar("prize_label", { length: 255 }),
   isRevealed: boolean("is_revealed").default(false).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Bonuses
-export const bonuses = pgTable("bonuses", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const bonuses = mysqlTable("bonuses", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
-  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   type: varchar("type", { length: 255 }).notNull(),
   status: varchar("status", { length: 255 }).default("pending").notNull(),
   description: text("description"),
-  expiresAt: timestamp("expires_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: datetime("expires_at"),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Affiliate/Referral system
-export const affiliates = pgTable("affiliates", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const affiliates = mysqlTable("affiliates", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull().unique(),
   referralCode: text("referral_code").notNull().unique(),
-  totalReferrals: integer("total_referrals").default(0).notNull(),
-  activeReferrals: integer("active_referrals").default(0).notNull(),
-  commissionBalance: numeric("commission_balance", { precision: 10, scale: 2 }).default("0").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  totalReferrals: int("total_referrals").default(0).notNull(),
+  activeReferrals: int("active_referrals").default(0).notNull(),
+  commissionBalance: decimal("commission_balance", { precision: 10, scale: 2 }).default("0").notNull(),
+  commissionPercentage: decimal("commission_percentage", { precision: 5, scale: 2 }).default("10.00").notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Referral tracking
-export const referrals = pgTable("referrals", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const referrals = mysqlTable("referrals", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   affiliateId: varchar("affiliate_id", { length: 36 }).references(() => affiliates.id).notNull(),
   referredUserId: varchar("referred_user_id", { length: 36 }).references(() => users.id).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Commissions tracking
-export const commissions = pgTable("commissions", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const commissions = mysqlTable("commissions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   affiliateId: varchar("affiliate_id", { length: 36 }).references(() => affiliates.id).notNull(),
   referralId: varchar("referral_id", { length: 36 }).references(() => referrals.id).notNull(),
   transactionId: varchar("transaction_id", { length: 36 }).references(() => transactions.id).notNull(),
-  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
-  percentage: numeric("percentage", { precision: 5, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  percentage: decimal("percentage", { precision: 5, scale: 2 }).notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Deliveries
-export const deliveries = pgTable("deliveries", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const deliveries = mysqlTable("deliveries", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
   purchaseId: varchar("purchase_id", { length: 36 }).references(() => purchases.id).notNull(),
-  prizeAmount: numeric("prize_amount", { precision: 10, scale: 2 }).notNull(),
+  prizeAmount: decimal("prize_amount", { precision: 10, scale: 2 }).notNull(),
   prizeLabel: varchar("prize_label", { length: 255 }).notNull(),
-  status: deliveryStatusEnum("status").default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "processing", "shipped", "delivered", "cancelled"]).default("pending").notNull(),
   trackingCode: varchar("tracking_code", { length: 255 }),
   address: text("address"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
+  updatedAt: datetime("updated_at").notNull().$defaultFn(() => new Date()),
 });
 
 // PIX Deposits
-export const deposits = pgTable("deposits", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const deposits = mysqlTable("deposits", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
-  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   pixKeyType: varchar("pix_key_type", { length: 50 }).notNull(),
   pixKey: text("pix_key").notNull(),
   qrCode: text("qr_code"),
@@ -152,26 +150,26 @@ export const deposits = pgTable("deposits", {
   status: varchar("status", { length: 50 }).default("pending").notNull(),
   externalId: varchar("external_id", { length: 255 }),
   description: text("description"),
-  paidAt: timestamp("paid_at"),
-  completedAt: timestamp("completed_at"),
+  paidAt: datetime("paid_at"),
+  completedAt: datetime("completed_at"),
   failureReason: text("failure_reason"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // PIX Withdrawals
-export const withdrawals = pgTable("withdrawals", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const withdrawals = mysqlTable("withdrawals", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
-  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   pixKeyType: varchar("pix_key_type", { length: 50 }).notNull(),
   pixKey: text("pix_key").notNull(),
   cpf: varchar("cpf", { length: 14 }).notNull(),
   status: varchar("status", { length: 50 }).default("pending").notNull(),
   externalId: varchar("external_id", { length: 255 }),
   description: text("description"),
-  completedAt: timestamp("completed_at"),
+  completedAt: datetime("completed_at"),
   failureReason: text("failure_reason"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),
 });
 
 // Relations

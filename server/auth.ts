@@ -7,6 +7,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
+import { validateCPF, validateEmail } from "./security-helpers";
 
 declare global {
   namespace Express {
@@ -43,14 +44,17 @@ export function setupAuth(app: Express) {
   app.use(passport.session());
 
   passport.use(
-    new LocalStrategy(async (username, password, done) => {
-      const user = await storage.getUserByUsername(username);
-      if (!user || !(await comparePasswords(password, user.password))) {
-        return done(null, false);
-      } else {
-        return done(null, user);
+    new LocalStrategy(
+      { usernameField: 'email' },
+      async (email, password, done) => {
+        const user = await storage.getUserByEmail(email);
+        if (!user || !(await comparePasswords(password, user.password))) {
+          return done(null, false);
+        } else {
+          return done(null, user);
+        }
       }
-    }),
+    ),
   );
 
   passport.serializeUser((user, done) => done(null, user.id));
@@ -60,25 +64,74 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/register", async (req, res, next) => {
-    console.log("[AUTH] Registration request body:", {  
-      username: req.body.username,
-      hasPassword: !!req.body.password,
-      referralCode: req.body.referralCode || 'none'
+    const { email, password, name, phone, birthDate, cpf, referralCode } = req.body;
+    
+    console.log("[AUTH] Registration request:", {  
+      email,
+      name,
+      hasPassword: !!password,
+      referralCode: referralCode || 'none'
     });
 
-    const existingUser = await storage.getUserByUsername(req.body.username);
-    if (existingUser) {
-      return res.status(400).send("Username already exists");
+    // Validate required fields
+    if (!email || !password || !name || !phone || !birthDate || !cpf) {
+      return res.status(400).send("Todos os campos são obrigatórios");
     }
 
+    // Validate email format
+    if (!validateEmail(email)) {
+      return res.status(400).send("Email inválido");
+    }
+
+    // Validate CPF format
+    if (!validateCPF(cpf)) {
+      return res.status(400).send("CPF inválido");
+    }
+
+    // Validate birth date format and age (18+)
+    const birthDateObj = new Date(birthDate);
+    
+    // Check if date is valid
+    if (isNaN(birthDateObj.getTime())) {
+      return res.status(400).send("Data de nascimento inválida");
+    }
+    
+    const today = new Date();
+    const age = today.getFullYear() - birthDateObj.getFullYear();
+    const monthDiff = today.getMonth() - birthDateObj.getMonth();
+    const dayDiff = today.getDate() - birthDateObj.getDate();
+    
+    if (age < 18 || (age === 18 && (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)))) {
+      return res.status(400).send("Você precisa ter 18 anos ou mais para se cadastrar");
+    }
+
+    // Check if email already exists
+    const existingEmail = await storage.getUserByEmail(email);
+    if (existingEmail) {
+      return res.status(400).send("Email já cadastrado");
+    }
+
+    // Check if CPF already exists
+    const existingCPF = await storage.getUserByCPF(cpf);
+    if (existingCPF) {
+      return res.status(400).send("CPF já cadastrado");
+    }
+
+    // Generate username from email
+    const username = email.split('@')[0] + '_' + randomBytes(4).toString('hex');
+
     const user = await storage.createUser({
-      ...req.body,
-      password: await hashPassword(req.body.password),
+      username,
+      email,
+      name,
+      phone,
+      birthDate: birthDateObj,
+      cpf,
+      password: await hashPassword(password),
     });
-    console.log("[AUTH] User created:", user.id, user.username);
+    console.log("[AUTH] User created:", user.id, user.email);
 
     // Process referral if referralCode provided
-    const { referralCode } = req.body;
     if (referralCode) {
       console.log("[AUTH] Processing referral code:", referralCode);
       try {
