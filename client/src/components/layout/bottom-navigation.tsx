@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Home, ShoppingCart, Wallet, Trophy, User, Menu, ArrowDownToLine, ArrowUpFromLine, LogOut } from "lucide-react";
+import { Home, ShoppingCart, Wallet, Trophy, User, Menu, ArrowDownToLine, ArrowUpFromLine, LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -70,6 +70,12 @@ export function BottomNavigation() {
       path: "/saque",
       testId: "menu-option-withdrawal",
     },
+    {
+      icon: Users,
+      label: "Afiliados",
+      path: "/afiliados",
+      testId: "menu-option-affiliates",
+    },
   ];
 
   const handleMenuOptionClick = (path: string) => {
@@ -135,7 +141,7 @@ export function BottomNavigation() {
           <SheetHeader>
             <SheetTitle>Menu</SheetTitle>
             <SheetDescription>
-              Acesse sua carteira, faça depósitos ou saques
+              Acesse sua carteira, faça depósitos, saques ou gerencie seus afiliados
             </SheetDescription>
           </SheetHeader>
           <div className="mt-6 space-y-2">
