@@ -5,31 +5,56 @@ import MySQLStoreFactory from "express-mysql-session";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
+// opcional: CORS apenas no dev (para o Vite)
+import cors from "cors";
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// --- Session (MySQL) ---
+if (app.get("env") === "development") {
+  app.use(
+    cors({
+      origin: ["http://localhost:5173"],
+      credentials: true
+    })
+  );
+}
+
+// ---- Session (MySQL) ----
 const MySQLStore = MySQLStoreFactory(session);
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL must be set (mysql://user:pass@host:port/db)");
-}
-if (!process.env.SESSION_SECRET) {
-  throw new Error("SESSION_SECRET must be set");
-}
-const dbUrl = new URL(process.env.DATABASE_URL);
+
+const dbUrlStr = process.env.DATABASE_URL;
+const sessionSecret = process.env.SESSION_SECRET;
+
+if (!dbUrlStr) throw new Error("DATABASE_URL must be set (mysql://user:pass@host:port/db)");
+if (!sessionSecret) throw new Error("SESSION_SECRET must be set");
+
+const dbUrl = new URL(dbUrlStr);
+
 const store = new MySQLStore({
   host: dbUrl.hostname,
   port: Number(dbUrl.port || 3306),
   user: decodeURIComponent(dbUrl.username),
   password: decodeURIComponent(dbUrl.password),
   database: dbUrl.pathname.replace(/^\//, ""),
-  createDatabaseTable: true
+  // cria a tabela "sessions" automaticamente (colunas: session_id, expires, data)
+  createDatabaseTable: true,
+  schema: {
+    tableName: "sessions",
+    columnNames: {
+      session_id: "session_id",
+      expires: "expires",
+      data: "data"
+    }
+  }
 });
+
 app.set("trust proxy", 1);
 app.use(
   session({
-    secret: process.env.SESSION_SECRET,
+    name: "sid",
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     store,
@@ -37,35 +62,24 @@ app.use(
       secure: app.get("env") === "production",
       httpOnly: true,
       sameSite: app.get("env") === "production" ? "none" : "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7
+      maxAge: 1000 * 60 * 60 * 24 * 7 // 7 dias
     }
   })
 );
 
-// --- Logger compacto de /api ---
+// ---- Rota de healthcheck (útil para Railway)
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// ---- Logger compacto para /api
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined;
-
-  const originalResJson = res.json.bind(res);
-  res.json = function (bodyJson: any, ...args: any[]) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson(bodyJson, ...args);
-  };
 
   res.on("finish", () => {
+    if (!path.startsWith("/api")) return;
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        try {
-          logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-        } catch {}
-      }
-      if (logLine.length > 80) logLine = logLine.slice(0, 79) + "…";
-      log(logLine);
-    }
+    // Não serializa o body para manter os logs curtos e baratos
+    log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
   });
 
   next();
@@ -74,13 +88,16 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
     res.status(status).json({ message });
-    throw err;
+    // deixe o log do erro aparecer nos logs do provedor
+    console.error(err);
   });
 
+  // Dev usa Vite; prod serve build estático
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
