@@ -1,113 +1,114 @@
 import { sql } from "drizzle-orm";
-import { mysqlTable, text, varchar, decimal, timestamp, int, boolean, mysqlEnum } from "drizzle-orm/mysql-core";
+import { pgTable, text, varchar, numeric, timestamp, integer, boolean, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
 // Enums
-export const transactionTypeEnum = mysqlEnum("transaction_type", ["deposit", "withdrawal", "purchase", "prize", "bonus", "commission"]);
-export const transactionStatusEnum = mysqlEnum("transaction_status", ["pending", "completed", "failed", "cancelled"]);
-export const categoryEnum = mysqlEnum("category", ["gold-rush", "lucky-animals", "vegas-lights", "mythic-gods", "crypto-scratch", "candy-mania"]);
-export const deliveryStatusEnum = mysqlEnum("delivery_status", ["pending", "processing", "shipped", "delivered", "cancelled"]);
+export const transactionTypeEnum = pgEnum("transaction_type", ["deposit", "withdrawal", "purchase", "prize", "bonus", "commission"]);
+export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "failed", "cancelled"]);
+export const categoryEnum = pgEnum("category", ["gold-rush", "lucky-animals", "vegas-lights", "mythic-gods", "crypto-scratch", "candy-mania"]);
+export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "processing", "shipped", "delivered", "cancelled"]);
 
 // Users table
-export const users = mysqlTable("users", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  email: text("email"),
-  name: text("name"),
+export const users = pgTable("users", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  username: varchar("username", { length: 255 }).notNull().unique(),
+  password: varchar("password", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  name: varchar("name", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Raspadinhas (scratch cards) table
-export const raspadinhas = mysqlTable("raspadinhas", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  slug: text("slug").notNull().unique(),
-  title: text("title").notNull(),
+export const raspadinhas = pgTable("raspadinhas", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
+  title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   imageUrl: text("image_url"),
-  category: categoryEnum.notNull().default("gold-rush"),
-  maxPrize: decimal("max_prize", { precision: 10, scale: 2 }).notNull(),
-  badge: text("badge"), // "+Chance", "Recomendado", etc.
+  category: categoryEnum("category").notNull().default("gold-rush"),
+  maxPrize: numeric("max_prize", { precision: 10, scale: 2 }).notNull(),
+  badge: varchar("badge", { length: 255 }),
   isActive: boolean("is_active").default(true).notNull(),
-  stock: int("stock").default(1000).notNull(),
+  stock: integer("stock").default(1000).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Prize tiers for each raspadinha
-export const prizes = mysqlTable("prizes", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const prizes = pgTable("prizes", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   raspadinhaId: varchar("raspadinha_id", { length: 36 }).references(() => raspadinhas.id).notNull(),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  label: text("label").notNull(), // "2 Mil Reais", "Mil Reais", etc.
-  probability: decimal("probability", { precision: 5, scale: 4 }).notNull(), // 0.0001 = 0.01%
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  label: varchar("label", { length: 255 }).notNull(),
+  probability: numeric("probability", { precision: 5, scale: 4 }).notNull(), // 0.0001 = 0.01%
   imageUrl: text("image_url"),
 });
 
 // User wallet/balance
-export const wallets = mysqlTable("wallets", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const wallets = pgTable("wallets", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull().unique(),
-  balanceTotal: decimal("balance_total", { precision: 10, scale: 2 }).default("0").notNull(),
-  balanceStandard: decimal("balance_standard", { precision: 10, scale: 2 }).default("0").notNull(),
-  balancePrizes: decimal("balance_prizes", { precision: 10, scale: 2 }).default("0").notNull(),
-  balanceBonus: decimal("balance_bonus", { precision: 10, scale: 2 }).default("0").notNull(),
+  balanceTotal: numeric("balance_total", { precision: 10, scale: 2 }).default("0").notNull(),
+  balanceStandard: numeric("balance_standard", { precision: 10, scale: 2 }).default("0").notNull(),
+  balancePrizes: numeric("balance_prizes", { precision: 10, scale: 2 }).default("0").notNull(),
+  balanceBonus: numeric("balance_bonus", { precision: 10, scale: 2 }).default("0").notNull(),
+  pendingWithdrawal: numeric("pending_withdrawal", { precision: 10, scale: 2 }).default("0").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Transactions (deposits, withdrawals, purchases, prizes)
-export const transactions = mysqlTable("transactions", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const transactions = pgTable("transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
-  type: transactionTypeEnum.notNull(),
-  status: transactionStatusEnum.default("pending").notNull(),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  type: transactionTypeEnum("type").notNull(),
+  status: transactionStatusEnum("status").default("pending").notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   description: text("description"),
-  pixCode: text("pix_code"), // For deposits
-  affiliateId: varchar("affiliate_id", { length: 36 }).references(() => affiliates.id), // For commission tracking
+  pixCode: text("pix_code"),
+  affiliateId: varchar("affiliate_id", { length: 36 }).references(() => affiliates.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Purchase history
-export const purchases = mysqlTable("purchases", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const purchases = pgTable("purchases", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
   raspadinhaId: varchar("raspadinha_id", { length: 36 }).references(() => raspadinhas.id).notNull(),
   transactionId: varchar("transaction_id", { length: 36 }).references(() => transactions.id),
-  prizeWon: decimal("prize_won", { precision: 10, scale: 2 }),
-  prizeLabel: text("prize_label"),
+  prizeWon: numeric("prize_won", { precision: 10, scale: 2 }),
+  prizeLabel: varchar("prize_label", { length: 255 }),
   isRevealed: boolean("is_revealed").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Bonuses
-export const bonuses = mysqlTable("bonuses", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const bonuses = pgTable("bonuses", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  type: text("type").notNull(), // "deposit_bonus", "referral_bonus", etc.
-  status: text("status").default("pending").notNull(), // "pending", "active", "claimed"
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  type: varchar("type", { length: 255 }).notNull(),
+  status: varchar("status", { length: 255 }).default("pending").notNull(),
   description: text("description"),
   expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Affiliate/Referral system
-export const affiliates = mysqlTable("affiliates", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const affiliates = pgTable("affiliates", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull().unique(),
   referralCode: text("referral_code").notNull().unique(),
-  totalReferrals: int("total_referrals").default(0).notNull(),
-  activeReferrals: int("active_referrals").default(0).notNull(),
-  commissionBalance: decimal("commission_balance", { precision: 10, scale: 2 }).default("0").notNull(),
+  totalReferrals: integer("total_referrals").default(0).notNull(),
+  activeReferrals: integer("active_referrals").default(0).notNull(),
+  commissionBalance: numeric("commission_balance", { precision: 10, scale: 2 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Referral tracking
-export const referrals = mysqlTable("referrals", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const referrals = pgTable("referrals", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   affiliateId: varchar("affiliate_id", { length: 36 }).references(() => affiliates.id).notNull(),
   referredUserId: varchar("referred_user_id", { length: 36 }).references(() => users.id).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
@@ -115,27 +116,62 @@ export const referrals = mysqlTable("referrals", {
 });
 
 // Commissions tracking
-export const commissions = mysqlTable("commissions", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const commissions = pgTable("commissions", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   affiliateId: varchar("affiliate_id", { length: 36 }).references(() => affiliates.id).notNull(),
   referralId: varchar("referral_id", { length: 36 }).references(() => referrals.id).notNull(),
   transactionId: varchar("transaction_id", { length: 36 }).references(() => transactions.id).notNull(),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  percentage: decimal("percentage", { precision: 5, scale: 2 }).notNull(), // e.g. 10.00 = 10%
-  isPaid: boolean("is_paid").default(false).notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  percentage: numeric("percentage", { precision: 5, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Deliveries (for physical prizes)
-export const deliveries = mysqlTable("deliveries", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+// Deliveries
+export const deliveries = pgTable("deliveries", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
   purchaseId: varchar("purchase_id", { length: 36 }).references(() => purchases.id).notNull(),
-  status: deliveryStatusEnum.default("pending").notNull(),
+  prizeAmount: numeric("prize_amount", { precision: 10, scale: 2 }).notNull(),
+  prizeLabel: varchar("prize_label", { length: 255 }).notNull(),
+  status: deliveryStatusEnum("status").default("pending").notNull(),
+  trackingCode: varchar("tracking_code", { length: 255 }),
   address: text("address"),
-  trackingCode: text("tracking_code"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// PIX Deposits
+export const deposits = pgTable("deposits", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  pixKeyType: varchar("pix_key_type", { length: 50 }).notNull(),
+  pixKey: text("pix_key").notNull(),
+  qrCode: text("qr_code"),
+  qrCodeBase64: text("qr_code_base64"),
+  status: varchar("status", { length: 50 }).default("pending").notNull(),
+  externalId: varchar("external_id", { length: 255 }),
+  description: text("description"),
+  paidAt: timestamp("paid_at"),
+  completedAt: timestamp("completed_at"),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// PIX Withdrawals
+export const withdrawals = pgTable("withdrawals", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 36 }).references(() => users.id).notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  pixKeyType: varchar("pix_key_type", { length: 50 }).notNull(),
+  pixKey: text("pix_key").notNull(),
+  cpf: varchar("cpf", { length: 14 }).notNull(),
+  status: varchar("status", { length: 50 }).default("pending").notNull(),
+  externalId: varchar("external_id", { length: 255 }),
+  description: text("description"),
+  completedAt: timestamp("completed_at"),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Relations
@@ -151,43 +187,13 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     fields: [users.id],
     references: [affiliates.userId],
   }),
+  deposits: many(deposits),
+  withdrawals: many(withdrawals),
 }));
 
 export const raspadinhasRelations = relations(raspadinhas, ({ many }) => ({
   prizes: many(prizes),
   purchases: many(purchases),
-}));
-
-export const prizesRelations = relations(prizes, ({ one }) => ({
-  raspadinha: one(raspadinhas, {
-    fields: [prizes.raspadinhaId],
-    references: [raspadinhas.id],
-  }),
-}));
-
-export const walletsRelations = relations(wallets, ({ one }) => ({
-  user: one(users, {
-    fields: [wallets.userId],
-    references: [users.id],
-  }),
-}));
-
-export const transactionsRelations = relations(transactions, ({ one }) => ({
-  user: one(users, {
-    fields: [transactions.userId],
-    references: [users.id],
-  }),
-}));
-
-export const purchasesRelations = relations(purchases, ({ one }) => ({
-  user: one(users, {
-    fields: [purchases.userId],
-    references: [users.id],
-  }),
-  raspadinha: one(raspadinhas, {
-    fields: [purchases.raspadinhaId],
-    references: [raspadinhas.id],
-  }),
 }));
 
 export const affiliatesRelations = relations(affiliates, ({ one, many }) => ({
@@ -196,12 +202,70 @@ export const affiliatesRelations = relations(affiliates, ({ one, many }) => ({
     references: [users.id],
   }),
   referrals: many(referrals),
+  commissions: many(commissions),
 }));
 
-// Zod schemas for validation
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export const referralsRelations = relations(referrals, ({ one, many }) => ({
+  affiliate: one(affiliates, {
+    fields: [referrals.affiliateId],
+    references: [affiliates.id],
+  }),
+  referredUser: one(users, {
+    fields: [referrals.referredUserId],
+    references: [users.id],
+  }),
+  commissions: many(commissions),
+}));
+
+// Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type Wallet = typeof wallets.$inferSelect;
+export type InsertWallet = z.infer<typeof insertWalletSchema>;
+
+export type Raspadinha = typeof raspadinhas.$inferSelect;
+export type InsertRaspadinha = z.infer<typeof insertRaspadinhaSchema>;
+
+export type Prize = typeof prizes.$inferSelect;
+export type InsertPrize = z.infer<typeof insertPrizeSchema>;
+
+export type Transaction = typeof transactions.$inferSelect;
+export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
+
+export type Purchase = typeof purchases.$inferSelect;
+export type InsertPurchase = z.infer<typeof insertPurchaseSchema>;
+
+export type Bonus = typeof bonuses.$inferSelect;
+export type InsertBonus = z.infer<typeof insertBonusSchema>;
+
+export type Affiliate = typeof affiliates.$inferSelect;
+export type InsertAffiliate = z.infer<typeof insertAffiliateSchema>;
+
+export type Referral = typeof referrals.$inferSelect;
+export type InsertReferral = z.infer<typeof insertReferralSchema>;
+
+export type Commission = typeof commissions.$inferSelect;
+export type InsertCommission = z.infer<typeof insertCommissionSchema>;
+
+export type Delivery = typeof deliveries.$inferSelect;
+export type InsertDelivery = z.infer<typeof insertDeliverySchema>;
+
+export type Deposit = typeof deposits.$inferSelect;
+export type InsertDeposit = z.infer<typeof insertDepositSchema>;
+
+export type Withdrawal = typeof withdrawals.$inferSelect;
+export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
+
+// Insert schemas
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertWalletSchema = createInsertSchema(wallets).omit({
+  id: true,
+  updatedAt: true,
 });
 
 export const insertRaspadinhaSchema = createInsertSchema(raspadinhas).omit({
@@ -216,11 +280,6 @@ export const insertPrizeSchema = createInsertSchema(prizes).omit({
 export const insertTransactionSchema = createInsertSchema(transactions).omit({
   id: true,
   createdAt: true,
-});
-
-export const insertWalletSchema = createInsertSchema(wallets).omit({
-  id: true,
-  updatedAt: true,
 });
 
 export const insertPurchaseSchema = createInsertSchema(purchases).omit({
@@ -238,10 +297,9 @@ export const insertAffiliateSchema = createInsertSchema(affiliates).omit({
   createdAt: true,
 });
 
-export const insertDeliverySchema = createInsertSchema(deliveries).omit({
+export const insertReferralSchema = createInsertSchema(referrals).omit({
   id: true,
   createdAt: true,
-  updatedAt: true,
 });
 
 export const insertCommissionSchema = createInsertSchema(commissions).omit({
@@ -249,41 +307,18 @@ export const insertCommissionSchema = createInsertSchema(commissions).omit({
   createdAt: true,
 });
 
-export const insertReferralSchema = createInsertSchema(referrals).omit({
+export const insertDeliverySchema = createInsertSchema(deliveries).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertDepositSchema = createInsertSchema(deposits).omit({
   id: true,
   createdAt: true,
 });
 
-// TypeScript types
-export type User = typeof users.$inferSelect;
-export type InsertUser = z.infer<typeof insertUserSchema>;
-
-export type Raspadinha = typeof raspadinhas.$inferSelect;
-export type InsertRaspadinha = z.infer<typeof insertRaspadinhaSchema>;
-
-export type Prize = typeof prizes.$inferSelect;
-export type InsertPrize = z.infer<typeof insertPrizeSchema>;
-
-export type Wallet = typeof wallets.$inferSelect;
-export type InsertWallet = z.infer<typeof insertWalletSchema>;
-
-export type Transaction = typeof transactions.$inferSelect;
-export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
-
-export type Purchase = typeof purchases.$inferSelect;
-export type InsertPurchase = z.infer<typeof insertPurchaseSchema>;
-
-export type Bonus = typeof bonuses.$inferSelect;
-export type InsertBonus = z.infer<typeof insertBonusSchema>;
-
-export type Affiliate = typeof affiliates.$inferSelect;
-export type InsertAffiliate = z.infer<typeof insertAffiliateSchema>;
-
-export type Delivery = typeof deliveries.$inferSelect;
-export type InsertDelivery = z.infer<typeof insertDeliverySchema>;
-
-export type Commission = typeof commissions.$inferSelect;
-export type InsertCommission = z.infer<typeof insertCommissionSchema>;
-
-export type Referral = typeof referrals.$inferSelect;
-export type InsertReferral = z.infer<typeof insertReferralSchema>;
+export const insertWithdrawalSchema = createInsertSchema(withdrawals).omit({
+  id: true,
+  createdAt: true,
+});
