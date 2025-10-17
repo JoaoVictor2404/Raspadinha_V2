@@ -1,3 +1,4 @@
+// shared/schema.ts
 import {
   mysqlTable,
   varchar,
@@ -6,52 +7,47 @@ import {
   int,
   tinyint,
   mysqlEnum,
-  timestamp
+  timestamp,
 } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
-// ===== Enums =====
-export const categoryEnum = mysqlEnum("category", [
+// ---- Enum values (const) ----
+export const CATEGORY = [
   "gold-rush",
   "lucky-animals",
   "vegas-lights",
   "mythic-gods",
   "crypto-scratch",
-  "candy-mania"
-]);
+  "candy-mania",
+] as const;
 
-export const txTypeEnum = mysqlEnum("transaction_type", [
+export const TX_TYPE = [
   "deposit",
   "withdrawal",
   "purchase",
   "prize",
   "bonus",
-  "commission"
-]);
+  "commission",
+] as const;
 
-export const txStatusEnum = mysqlEnum("transaction_status", [
-  "pending",
-  "completed",
-  "failed",
-  "cancelled"
-]);
+export const TX_STATUS = ["pending", "completed", "failed", "cancelled"] as const;
 
-export const deliveryStatusEnum = mysqlEnum("delivery_status", [
+export const DELIVERY_STATUS = [
   "pending",
   "processing",
   "shipped",
   "delivered",
-  "cancelled"
-]);
+  "cancelled",
+] as const;
 
-// ===== Tabelas =====
+// ---- Tabelas ----
 export const users = mysqlTable("users", {
   id: varchar("id", { length: 36 }).primaryKey(),
   username: varchar("username", { length: 255 }).notNull().unique(),
   password: varchar("password", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }),
   name: varchar("name", { length: 255 }),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow()
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 export const affiliates = mysqlTable("affiliates", {
@@ -63,7 +59,7 @@ export const affiliates = mysqlTable("affiliates", {
   commissionBalance: decimal("commission_balance", { precision: 10, scale: 2 })
     .notNull()
     .default("0.00"),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow()
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 export const raspadinhas = mysqlTable("raspadinhas", {
@@ -73,12 +69,12 @@ export const raspadinhas = mysqlTable("raspadinhas", {
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   imageUrl: text("image_url"),
-  category: categoryEnum("category").notNull().default("gold-rush"),
+  category: mysqlEnum("category", CATEGORY).notNull().default("gold-rush"),
   maxPrize: decimal("max_prize", { precision: 10, scale: 2 }).notNull(),
   badge: varchar("badge", { length: 255 }),
   isActive: tinyint("is_active").notNull().default(1),
   stock: int("stock").notNull().default(1000),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow()
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 export const prizes = mysqlTable("prizes", {
@@ -87,19 +83,19 @@ export const prizes = mysqlTable("prizes", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   label: varchar("label", { length: 255 }).notNull(),
   probability: decimal("probability", { precision: 5, scale: 4 }).notNull(),
-  imageUrl: text("image_url")
+  imageUrl: text("image_url"),
 });
 
 export const transactions = mysqlTable("transactions", {
   id: varchar("id", { length: 36 }).primaryKey(),
   userId: varchar("user_id", { length: 36 }).notNull(),
-  type: txTypeEnum("type").notNull(),
-  status: txStatusEnum("status").notNull().default("pending"),
+  type: mysqlEnum("type", TX_TYPE).notNull(),
+  status: mysqlEnum("status", TX_STATUS).notNull().default("pending"),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   description: text("description"),
   pixCode: text("pix_code"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-  affiliateId: varchar("affiliate_id", { length: 36 })
+  affiliateId: varchar("affiliate_id", { length: 36 }),
 });
 
 export const purchases = mysqlTable("purchases", {
@@ -110,18 +106,18 @@ export const purchases = mysqlTable("purchases", {
   prizeWon: decimal("prize_won", { precision: 10, scale: 2 }),
   prizeLabel: varchar("prize_label", { length: 255 }),
   isRevealed: tinyint("is_revealed").notNull().default(0),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow()
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 export const deliveries = mysqlTable("deliveries", {
   id: varchar("id", { length: 36 }).primaryKey(),
   userId: varchar("user_id", { length: 36 }).notNull(),
   purchaseId: varchar("purchase_id", { length: 36 }).notNull(),
-  status: deliveryStatusEnum("status").notNull().default("pending"),
+  status: mysqlEnum("status", DELIVERY_STATUS).notNull().default("pending"),
   address: text("address"),
   trackingCode: text("tracking_code"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow().onUpdateNow()
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow().onUpdateNow(),
 });
 
 export const referrals = mysqlTable("referrals", {
@@ -129,7 +125,7 @@ export const referrals = mysqlTable("referrals", {
   affiliateId: varchar("affiliate_id", { length: 36 }).notNull(),
   referredUserId: varchar("referred_user_id", { length: 36 }).notNull(),
   isActive: tinyint("is_active").notNull().default(1),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow()
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 export const commissions = mysqlTable("commissions", {
@@ -140,7 +136,7 @@ export const commissions = mysqlTable("commissions", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   percentage: decimal("percentage", { precision: 5, scale: 2 }).notNull(),
   isPaid: tinyint("is_paid").notNull().default(0),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow()
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 export const wallets = mysqlTable("wallets", {
@@ -150,31 +146,42 @@ export const wallets = mysqlTable("wallets", {
   balanceStandard: decimal("balance_standard", { precision: 10, scale: 2 }).notNull().default("0.00"),
   balancePrizes: decimal("balance_prizes", { precision: 10, scale: 2 }).notNull().default("0.00"),
   balanceBonus: decimal("balance_bonus", { precision: 10, scale: 2 }).notNull().default("0.00"),
-  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow().onUpdateNow()
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow().onUpdateNow(),
 });
 
-// ===== Relations (para db.query.* with: {...}) =====
+export const bonuses = mysqlTable("bonuses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  type: varchar("type", { length: 255 }).notNull(),
+  status: varchar("status", { length: 255 }).notNull().default("pending"),
+  description: text("description"),
+  expiresAt: timestamp("expires_at", { mode: "date" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+// ---- Relations (para db.query.* with: {...}) ----
 export const raspadinhasRelations = relations(raspadinhas, ({ many }) => ({
   prizes: many(prizes),
-  purchases: many(purchases)
+  purchases: many(purchases),
 }));
 
 export const purchasesRelations = relations(purchases, ({ one }) => ({
   raspadinha: one(raspadinhas, {
     fields: [purchases.raspadinhaId],
-    references: [raspadinhas.id]
+    references: [raspadinhas.id],
   }),
   user: one(users, {
     fields: [purchases.userId],
-    references: [users.id]
+    references: [users.id],
   }),
   transaction: one(transactions, {
     fields: [purchases.transactionId],
-    references: [transactions.id]
-  })
+    references: [transactions.id],
+  }),
 }));
 
-// ===== Tipos inferidos =====
+// ---- Tipos inferidos ----
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
@@ -192,18 +199,7 @@ export type InsertTransaction = typeof transactions.$inferInsert;
 export type Purchase = typeof purchases.$inferSelect;
 export type InsertPurchase = typeof purchases.$inferInsert;
 
-export type Bonus = typeof bonuses.$inferSelect; // se tiver tabela bonuses no seu schema real
-// Se não houver tabela "bonuses" real, remova essas duas linhas ou crie a tabela analogamente:
-export const bonuses = mysqlTable("bonuses", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  userId: varchar("user_id", { length: 36 }).notNull(),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  type: varchar("type", { length: 255 }).notNull(),
-  status: varchar("status", { length: 255 }).notNull().default("pending"),
-  description: text("description"),
-  expiresAt: timestamp("expires_at", { mode: "date" }),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow()
-});
+export type Bonus = typeof bonuses.$inferSelect;
 export type InsertBonus = typeof bonuses.$inferInsert;
 
 export type Affiliate = typeof affiliates.$inferSelect;
