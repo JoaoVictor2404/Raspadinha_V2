@@ -76,6 +76,11 @@ export default function RaspadinhaDetailPage() {
     }
   };
 
+  const handlePlayAgain = () => {
+    // Reset game data to go back to purchase screen
+    setGameData(null);
+  };
+
   const handleBuyClick = () => {
     // Check if user is authenticated
     if (!user) {
@@ -140,6 +145,7 @@ export default function RaspadinhaDetailPage() {
                 prizeAmount={parseFloat(gameData.prizeWon)}
                 category={raspadinha.category}
                 onComplete={handleGameComplete}
+                onPlayAgain={handlePlayAgain}
               />
             </>
           ) : (

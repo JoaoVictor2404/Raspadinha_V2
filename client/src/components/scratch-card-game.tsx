@@ -9,6 +9,7 @@ interface ScratchCardGameProps {
   prizeAmount: number;
   category?: string;
   onComplete?: () => void;
+  onPlayAgain?: () => void;
 }
 
 // Tema visual para cada categoria
@@ -47,7 +48,7 @@ type GridCell = {
   revealed: boolean;
 };
 
-export function ScratchCardGame({ prizeLabel, prizeAmount, category = "gold-rush", onComplete }: ScratchCardGameProps) {
+export function ScratchCardGame({ prizeLabel, prizeAmount, category = "gold-rush", onComplete, onPlayAgain }: ScratchCardGameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [isScratching, setIsScratching] = useState(false);
@@ -343,9 +344,19 @@ export function ScratchCardGame({ prizeLabel, prizeAmount, category = "gold-rush
           <p className="text-base md:text-lg font-semibold text-primary">
             R$ {prizeAmount.toFixed(2).replace('.', ',')}
           </p>
-          <p className="text-xs md:text-sm text-muted-foreground mt-2">
+          <p className="text-xs md:text-sm text-muted-foreground mt-2 mb-4">
             🎉 Parabéns! O valor foi creditado na sua carteira
           </p>
+          {onPlayAgain && (
+            <Button
+              onClick={onPlayAgain}
+              className="w-full md:w-auto"
+              size="lg"
+              data-testid="button-jogar-novamente"
+            >
+              Jogar Novamente
+            </Button>
+          )}
         </div>
       )}
 
@@ -354,9 +365,19 @@ export function ScratchCardGame({ prizeLabel, prizeAmount, category = "gold-rush
           <p className="text-base md:text-lg font-semibold text-muted-foreground mb-2">
             Nenhuma linha combinou
           </p>
-          <p className="text-xs md:text-sm text-muted-foreground">
+          <p className="text-xs md:text-sm text-muted-foreground mb-4">
             Continue tentando! A sorte está próxima 🍀
           </p>
+          {onPlayAgain && (
+            <Button
+              onClick={onPlayAgain}
+              className="w-full md:w-auto"
+              size="lg"
+              data-testid="button-jogar-novamente"
+            >
+              Tentar Novamente
+            </Button>
+          )}
         </div>
       )}
 
