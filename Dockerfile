@@ -1,29 +1,28 @@
 FROM node:22-alpine
 
 WORKDIR /app
-
 RUN apk add --no-cache bash tini libc6-compat
 
-# 1) instala deps conforme lock (para cache layer eficiente)
+# 1) Manifests primeiro p/ cache
 COPY package.json package-lock.json* ./
-RUN npm ci --include=dev
 
-# 2) copia o código
+# 2) Instalação: tenta ci; se lock estiver desatualizado, cai pro install
+RUN (npm ci --include=dev) || (echo "npm ci failed; falling back to npm install" && npm install --include=dev)
+
+# 3) Copia o resto do código
 COPY . .
 
-# 3) garante que tooltip/portal existem MESMO se o lock estiver desatualizado
-# (não altera seu package-lock no repositório)
-RUN npm i @radix-ui/react-tooltip @radix-ui/react-portal --no-save
+# 4) Garante Radix Tooltip/Portal mesmo que o lock ainda não tenha sido commitado
+RUN npm install @radix-ui/react-tooltip @radix-ui/react-portal --no-save
 
-# 4) build do front (gera dist/public)
+# 5) Build do front (gera dist/public)
 RUN npm run build
 
-# 5) entrypoint para migrations + start
+# 6) Entrypoint para migrations + start
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENV NODE_ENV=production
 EXPOSE 5000
-
 ENTRYPOINT ["/sbin/tini","--"]
 CMD ["/usr/local/bin/entrypoint.sh"]
