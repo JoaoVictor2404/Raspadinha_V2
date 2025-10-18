@@ -563,43 +563,53 @@ app.post(
     try {
       const userId = req.user!.id;
       const { amount } = req.body;
-
-      // Validate amount
+    
+      // 1) valida valor
       const amountError = validateAmount(amount, MIN_DEPOSIT, MAX_DEPOSIT);
       if (amountError) {
         return res.status(400).json({ error: amountError });
       }
-
-      // ------------------ NOVO: construir callbackUrl ------------------
+    
+      // 2) prepara dados auxiliares (user + callback) — NÃO usa transaction aqui
       const appUrl = process.env.APP_URL?.replace(/\/$/, "");
       const callbackUrlEnv = process.env.PIX_CALLBACK_URL?.trim();
       const inferredCallback = appUrl ? `${appUrl}/api/deposits/notify` : undefined;
       const callbackUrl = callbackUrlEnv || inferredCallback;
-          
-      // valida o callback (se não for http[s], não envia)
-      const validCallback = callbackUrl && /^https?:\/\//i.test(callbackUrl) ? callbackUrl : undefined;
-          
+      const validCallback =
+        callbackUrl && /^https?:\/\//i.test(callbackUrl) ? callbackUrl : undefined;
+    
       const user = await storage.getUser(userId);
       const safeDoc = user?.cpf ? String(user.cpf).replace(/\D+/g, "") : undefined;
-      const userDocument = safeDoc && /^\d{11}$/.test(safeDoc) ? safeDoc : undefined;
-          
+      const userDocument =
+        safeDoc && /^\d{11}$/.test(safeDoc) ? safeDoc : undefined;
+    
+      // 3) cria a transaction (AGORA podemos referenciar transaction.id)
+      const transaction = await storage.createTransaction({
+        userId,
+        type: "deposit",
+        amount: Number(amount).toString(),
+        status: "pending",
+        description: `Depósito PIX - R$ ${Number(amount).toFixed(2)}`,
+      });
+    
+      // 4) chama o provider usando a transaction recem-criada
       const provider = getPaymentProvider();
       const charge = await provider.createCharge({
-        amount,
+        amount: Number(amount),
         description: `Depósito Ludix - ${req.user!.username}`,
-        externalId: transaction.id,
+        externalId: transaction.id,               // <-- transaction já existe
         userName: user?.name ?? req.user!.username ?? "Usuário",
         userEmail: user?.email ?? `${userId}@placeholder.local`,
-        userDocument,        // só vai se for CPF válido (11 dígitos)
-        callbackUrl: validCallback, // só vai se for http/https
+        userDocument,                              // só se CPF válido (11 dígitos)
+        callbackUrl: validCallback,                // só se http/https
         expiresIn: 600,
       });
-
-      // Save deposit record
+    
+      // 5) grava o depósito
       const deposit = await storage.createDeposit({
         userId,
         transactionId: transaction.id,
-        amount: amount.toString(),
+        amount: Number(amount).toString(),
         status: "pending",
         pixChargeId: charge.id,
         pixKey: charge.pixKey || null,
@@ -608,14 +618,15 @@ app.post(
         expiresAt: charge.expiresAt || null,
         paidAt: null,
       });
-
+    
+      // 6) resposta
       res.json({
         depositId: deposit.id,
         transactionId: transaction.id,
         qrCode: charge.qrCode,
         qrCodeBase64: charge.qrCodeBase64,
         pixKey: charge.pixKey,
-        amount,
+        amount: Number(amount),
         expiresAt: charge.expiresAt,
         status: "pending",
       });
