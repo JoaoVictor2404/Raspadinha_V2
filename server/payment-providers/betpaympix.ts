@@ -10,104 +10,100 @@ export class BetPaymPixProvider implements PaymentProvider {
   name = 'BetPaymPix';
   private apiUrl = 'https://api.betpaympix.com/v1';
   private token: string;
+  private defaultCallbackUrl?: string;
 
-  constructor(token: string) {
-    if (!token) {
-      throw new Error('BetPaymPix token is required');
-    }
+  constructor(token: string, defaultCallbackUrl?: string) {
+    if (!token) throw new Error('BetPaymPix token is required');
     this.token = token;
+    this.defaultCallbackUrl = defaultCallbackUrl;
   }
 
   private async request(method: string, endpoint: string, body?: any) {
-    const response = await fetch(`${this.apiUrl}${endpoint}`, {
+    const res = await fetch(`${this.apiUrl}${endpoint}`, {
       method,
       headers: {
         'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json'
       },
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`BetPaymPix API error: ${response.status} - ${error}`);
+    if (!res.ok) {
+      const text = await res.text();
+      // Mostra a razão exata no log para facilitar debug
+      throw new Error(`BetPaymPix API error: ${res.status} - ${text}`);
     }
-
-    return response.json();
+    return res.json();
   }
 
   async createCharge(params: CreateChargeParams): Promise<PixCharge> {
-    const amountInCents = Math.round(Number(params.amount) * 100);
-  
-    if (!Number.isFinite(amountInCents) || amountInCents <= 0) {
-      throw new Error("Invalid amount");
-    }
-  
-    const payload: any = {
+    const amountInCents = Math.round(params.amount * 100);
+
+    // Monta o payload apenas com campos definidos para evitar "Invalid "
+    const payload: Record<string, any> = {
       amount: amountInCents,
+      description: params.description?.slice(0, 200) ?? `Depósito R$ ${(params.amount).toFixed(2)}`,
+      externalId: params.externalId
     };
-  
-    if (params.externalId) payload.externalId = String(params.externalId);
-    if (params.description) payload.description = String(params.description).slice(0, 140);
-    if (params.expiresIn && Number.isFinite(params.expiresIn)) payload.expiresIn = Math.floor(params.expiresIn);
-  
-    // Só envia se existir e for http/https
-    if (params.callbackUrl && /^https?:\/\//i.test(params.callbackUrl)) {
-      payload.callbackUrl = params.callbackUrl;
+
+    const callbackUrl = params.callbackUrl || this.defaultCallbackUrl;
+    if (!callbackUrl) {
+      throw new Error('callbackUrl is required for BetPaymPix');
     }
-  
-    // Dados do pagador só se válidos
-    if (params.userName) payload.generatedName = String(params.userName).trim();
-    if (params.userEmail) payload.generatedEmail = String(params.userEmail).trim();
-  
+    payload.callbackUrl = callbackUrl;
+
+    // Campos do pagador – a API costuma exigir dados válidos
+    if (params.userName) payload.generatedName = params.userName;
+    if (params.userEmail) payload.generatedEmail = params.userEmail;
+
+    // Documento tem que ser numérico e com 11 dígitos no mínimo
     if (params.userDocument) {
-      const doc = String(params.userDocument).replace(/\D+/g, "");
-      if (/^\d{11}$/.test(doc)) {
-        payload.generatedDocument = doc;
-      }
+      const onlyDigits = params.userDocument.replace(/\D/g, '');
+      if (onlyDigits.length >= 11) payload.generatedDocument = onlyDigits;
     }
-  
-    const response = await this.request("POST", "/pix", payload);
-  
+
+    if (params.expiresIn) payload.expiresIn = params.expiresIn;
+
+    const response = await this.request('POST', '/pix', payload);
+
     return {
       id: response.id,
-      pixKey: response.pixKey || response.brCode,
+      pixKey: response.pixKey ?? response.brCode,
       qrCode: response.qrCode,
-      qrCodeBase64: response.qrCodeBase64 || response.qrCode,
-      amount: Number(params.amount),
-      status: "PENDING",
-      expiresAt: params.expiresIn ? new Date(Date.now() + params.expiresIn * 1000) : undefined,
+      qrCodeBase64: response.qrCodeBase64 ?? response.qrCode,
+      amount: params.amount,
+      status: 'PENDING',
+      expiresAt: response.expiresAt ? new Date(response.expiresAt) : (params.expiresIn ? new Date(Date.now() + params.expiresIn * 1000) : undefined),
       paidAt: response.paidAt ? new Date(response.paidAt) : undefined,
     };
   }
 
   async getChargeStatus(chargeId: string): Promise<PixCharge> {
-    const response = await this.request('GET', `/pix?id=${chargeId}`);
-    
+    const response = await this.request('GET', `/pix?id=${encodeURIComponent(chargeId)}`);
     return {
       id: response.id,
-      pixKey: response.pixKey || response.brCode,
+      pixKey: response.pixKey ?? response.brCode,
       qrCode: response.qrCode,
-      qrCodeBase64: response.qrCodeBase64 || response.qrCode,
-      amount: response.amount / 100, // Converte centavos para reais
+      qrCodeBase64: response.qrCodeBase64 ?? response.qrCode,
+      amount: response.amount / 100,
       status: response.status as 'PENDING' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED',
-      expiresAt: new Date(response.expiresAt),
+      expiresAt: response.expiresAt ? new Date(response.expiresAt) : undefined,
       paidAt: response.paidAt ? new Date(response.paidAt) : undefined,
     };
   }
 
   async createWithdrawal(params: CreateWithdrawalParams): Promise<WithdrawalResult> {
     const amountInCents = Math.round(params.amount * 100);
-    
-    const response = await this.request('POST', '/withdrawals', {
+    const payload: any = {
       amount: amountInCents,
       pixKey: params.pixKey,
       pixKeyType: params.pixKeyType,
       recipientName: params.recipientName,
-      recipientDocument: params.recipientDocument,
+      recipientDocument: params.recipientDocument?.replace(/\D/g, ''),
       externalId: params.externalId,
-    });
-
+    };
+    const response = await this.request('POST', '/withdrawals', payload);
     return {
       id: response.id,
       status: 'PENDING',
@@ -118,8 +114,7 @@ export class BetPaymPixProvider implements PaymentProvider {
   }
 
   async getWithdrawalStatus(withdrawalId: string): Promise<WithdrawalResult> {
-    const response = await this.request('GET', `/withdrawals?id=${withdrawalId}`);
-    
+    const response = await this.request('GET', `/withdrawals?id=${encodeURIComponent(withdrawalId)}`);
     return {
       id: response.id,
       status: response.status as 'PENDING' | 'COMPLETED' | 'FAILED',
@@ -130,19 +125,6 @@ export class BetPaymPixProvider implements PaymentProvider {
   }
 
   validateWebhook(payload: any, signature?: string): boolean {
-    // BetPaymPix webhook validation
-    // Por segurança, sempre validar o signature se fornecido
-    // Aqui verificamos se o payload tem estrutura válida
-    if (!payload || !payload.id || !payload.status) {
-      return false;
-    }
-
-    // Se houver signature, validar (implementar quando BetPaymPix fornecer detalhes)
-    if (signature) {
-      // TODO: Implementar validação de assinatura quando disponível
-      console.warn('Signature validation not implemented yet');
-    }
-
-    return true;
+    return Boolean(payload && payload.id && payload.status); // placeholder
   }
 }
