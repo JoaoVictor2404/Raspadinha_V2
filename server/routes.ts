@@ -551,72 +551,95 @@ export function registerRoutes(app: Express): Server {
   });
 
   // ============================================================================
-  // PIX DEPOSIT ROUTES
-  // ============================================================================
+// PIX DEPOSIT ROUTES
+// ============================================================================
 
-  // Create deposit (generate QR Code PIX)
-  app.post(
-    "/api/deposits/create",
-    requireAuth,
-    rateLimit("deposit", RATE_LIMITS.DEPOSIT_PER_HOUR, 60 * 60 * 1000),
-    async (req, res) => {
-      try {
-        const userId = req.user!.id;
-        const { amount } = req.body;
+// Create deposit (generate QR Code PIX)
+app.post(
+  "/api/deposits/create",
+  requireAuth,
+  rateLimit("deposit", RATE_LIMITS.DEPOSIT_PER_HOUR, 60 * 60 * 1000),
+  async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { amount } = req.body;
 
-        // Validate amount
-        const amountError = validateAmount(amount, MIN_DEPOSIT, MAX_DEPOSIT);
-        if (amountError) {
-          return res.status(400).json({ error: amountError });
-        }
-
-        // Create pending transaction
-        const transaction = await storage.createTransaction({
-          userId,
-          type: "deposit",
-          amount: amount.toString(),
-          status: "pending",
-          description: `Depósito PIX - R$ ${amount.toFixed(2)}`,
-        });
-
-        // Create charge via payment provider
-        const provider = getPaymentProvider();
-        const charge = await provider.createCharge({
-          amount,
-          description: `Depósito Ludix - ${req.user!.username}`,
-          externalId: transaction.id,
-        });
-
-        // Save deposit record
-        const deposit = await storage.createDeposit({
-          userId,
-          transactionId: transaction.id,
-          amount: amount.toString(),
-          status: "pending",
-          pixChargeId: charge.id,
-          pixKey: charge.pixKey || null,
-          qrCode: charge.qrCode || null,
-          qrCodeBase64: charge.qrCodeBase64 || null,
-          expiresAt: charge.expiresAt || null,
-          paidAt: null,
-        });
-
-        res.json({
-          depositId: deposit.id,
-          transactionId: transaction.id,
-          qrCode: charge.qrCode,
-          qrCodeBase64: charge.qrCodeBase64,
-          pixKey: charge.pixKey,
-          amount,
-          expiresAt: charge.expiresAt,
-          status: "pending",
-        });
-      } catch (error: any) {
-        console.error("Deposit creation error:", error);
-        res.status(500).json({ error: "Falha ao criar depósito" });
+      // Validate amount
+      const amountError = validateAmount(amount, MIN_DEPOSIT, MAX_DEPOSIT);
+      if (amountError) {
+        return res.status(400).json({ error: amountError });
       }
+
+      // ------------------ NOVO: construir callbackUrl ------------------
+      const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+      const callbackUrlEnv = process.env.PIX_CALLBACK_URL?.trim();
+      const callbackUrl =
+        callbackUrlEnv || (appUrl ? `${appUrl}/api/deposits/notify` : undefined);
+
+      if (!callbackUrl) {
+        return res
+          .status(500)
+          .json({ error: "PIX_CALLBACK_URL ou APP_URL não configurados" });
+      }
+      // -----------------------------------------------------------------
+
+      // pegamos alguns dados do usuário para enviar ao provedor
+      const user = await storage.getUser(userId);
+
+      // Create pending transaction
+      const transaction = await storage.createTransaction({
+        userId,
+        type: "deposit",
+        amount: amount.toString(),
+        status: "pending",
+        description: `Depósito PIX - R$ ${Number(amount).toFixed(2)}`,
+      });
+
+      // Create charge via payment provider
+      const provider = getPaymentProvider();
+      const charge = await provider.createCharge({
+        amount,
+        description: `Depósito Ludix - ${req.user!.username}`,
+        externalId: transaction.id,
+        // ---------- NOVOS CAMPOS ENVIADOS AO PROVEDOR ----------
+        userName: user?.name ?? req.user!.username ?? "Usuário",
+        userEmail: user?.email ?? `${userId}@placeholder.local`,
+        userDocument: user?.cpf ?? undefined,
+        callbackUrl,            // <- requerido pelo BetPaymPix
+        expiresIn: 600,         // 10 min
+        // --------------------------------------------------------
+      });
+
+      // Save deposit record
+      const deposit = await storage.createDeposit({
+        userId,
+        transactionId: transaction.id,
+        amount: amount.toString(),
+        status: "pending",
+        pixChargeId: charge.id,
+        pixKey: charge.pixKey || null,
+        qrCode: charge.qrCode || null,
+        qrCodeBase64: charge.qrCodeBase64 || null,
+        expiresAt: charge.expiresAt || null,
+        paidAt: null,
+      });
+
+      res.json({
+        depositId: deposit.id,
+        transactionId: transaction.id,
+        qrCode: charge.qrCode,
+        qrCodeBase64: charge.qrCodeBase64,
+        pixKey: charge.pixKey,
+        amount,
+        expiresAt: charge.expiresAt,
+        status: "pending",
+      });
+    } catch (error: any) {
+      console.error("Deposit creation error:", error);
+      res.status(500).json({ error: "Falha ao criar depósito" });
     }
-  );
+  }
+);
 
   // Get deposit status
   app.get("/api/deposits/:id", requireAuth, async (req, res) => {
@@ -715,65 +738,75 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Webhook to receive payment notifications
-  app.post("/api/webhooks/pix", async (req, res) => {
-    try {
-      const provider = getPaymentProvider();
-      
-      // Validate webhook signature
-      const signature = req.headers["x-signature"] as string;
-      if (!provider.validateWebhook(req.body, signature)) {
-        return res.status(401).json({ error: "Invalid signature" });
-      }
+  // / ---------------------- NOVO ALIAS DE WEBHOOK ----------------------
+app.post("/api/deposits/notify", async (req, res, next) => {
+  // reaproveita a mesma lógica do webhook oficial
+  // basta trocar o path para a mesma função abaixo
+  (app as any)._router.handle(req, res, next); // delega para as rotas já registradas
+});
+// -------------------------------------------------------------------
 
-      const { event, data } = req.body;
+// Webhook to receive payment notifications (mantido)
+app.post("/api/webhooks/pix", async (req, res) => {
+  try {
+    const provider = getPaymentProvider();
 
-      if (event === "charge.completed" && data.externalId) {
-        // Find deposit by transaction ID
-        const transaction = await storage.getTransactionsByUser("", "deposit");
-        const txn = transaction.find(t => t.id === data.externalId);
-        
-        if (!txn) {
-          return res.status(404).json({ error: "Transaction not found" });
-        }
-
-        // Find deposit
-        const deposits = await storage.getDepositsByUser(txn.userId);
-        const deposit = deposits.find(d => d.transactionId === txn.id);
-
-        if (!deposit || deposit.status === "completed") {
-          return res.status(200).json({ message: "Already processed" });
-        }
-
-        // Update deposit
-        await storage.updateDeposit(deposit.id, {
-          status: "completed",
-          paidAt: new Date(),
-        });
-
-        await storage.updateTransaction(deposit.transactionId, {
-          status: "completed",
-        });
-
-        // Credit wallet
-        const wallet = await storage.getWallet(deposit.userId);
-        if (wallet) {
-          const newStandard = parseFloat(wallet.balanceStandard) + parseFloat(deposit.amount);
-          const newTotal = parseFloat(wallet.balanceTotal) + parseFloat(deposit.amount);
-
-          await storage.updateWallet(deposit.userId, {
-            balanceStandard: newStandard.toString(),
-            balanceTotal: newTotal.toString(),
-          });
-        }
-      }
-
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error("Webhook error:", error);
-      res.status(500).json({ error: error.message });
+    // Validate webhook signature
+    const signature = req.headers["x-signature"] as string;
+    if (!provider.validateWebhook(req.body, signature)) {
+      return res.status(401).json({ error: "Invalid signature" });
     }
-  });
+
+    const { event, data } = req.body;
+
+    if (event === "charge.completed" && data.externalId) {
+      // Find deposit by transaction ID
+      const transaction = await storage.getTransactionsByUser("", "deposit");
+      const txn = transaction.find((t) => t.id === data.externalId);
+
+      if (!txn) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+
+      // Find deposit
+      const deposits = await storage.getDepositsByUser(txn.userId);
+      const deposit = deposits.find((d) => d.transactionId === txn.id);
+
+      if (!deposit || deposit.status === "completed") {
+        return res.status(200).json({ message: "Already processed" });
+      }
+
+      // Update deposit
+      await storage.updateDeposit(deposit.id, {
+        status: "completed",
+        paidAt: new Date(),
+      });
+
+      await storage.updateTransaction(deposit.transactionId, {
+        status: "completed",
+      });
+
+      // Credit wallet
+      const wallet = await storage.getWallet(deposit.userId);
+      if (wallet) {
+        const newStandard =
+          parseFloat(wallet.balanceStandard) + parseFloat(deposit.amount);
+        const newTotal =
+          parseFloat(wallet.balanceTotal) + parseFloat(deposit.amount);
+
+        await storage.updateWallet(deposit.userId, {
+          balanceStandard: newStandard.toString(),
+          balanceTotal: newTotal.toString(),
+        });
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Webhook error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
   // ============================================================================
   // PIX WITHDRAWAL ROUTES
