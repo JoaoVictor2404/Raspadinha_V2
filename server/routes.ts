@@ -36,6 +36,30 @@ export function registerRoutes(app: Express): Server {
     next();
   };
 
+  async function getUserKycOrFail(userId: string) {
+    const user = await storage.getUser(userId);
+    if (!user) {
+      const err: any = new Error("Usuário não encontrado");
+      err.status = 404;
+      throw err;
+    }
+  
+    const name = (user.name || "").trim();
+    const email = (user.email || "").trim();
+    const cpf = sanitizeCPF(user.cpf || "");
+  
+    // Exigimos nome, e-mail e CPF válido (11 dígitos)
+    if (!name || !email || !cpf || !validateCPF(cpf)) {
+      const err: any = new Error(
+        "Perfil incompleto. Cadastre nome, e-mail e CPF válidos para gerar PIX."
+      );
+      err.status = 400;
+      throw err;
+    }
+  
+    return { name, email, cpf };
+  }
+
   // ============================================================================
   // RASPADINHAS ROUTES
   // ============================================================================
@@ -565,9 +589,14 @@ app.post(
       const { amount } = req.body;
 
       const amountError = validateAmount(amount, MIN_DEPOSIT, MAX_DEPOSIT);
-      if (amountError) return res.status(400).json({ error: amountError });
+      if (amountError) {
+        return res.status(400).json({ error: amountError });
+      }
 
-      // cria transação pendente
+      // 1) Buscar dados do usuário no DB
+      const kyc = await getUserKycOrFail(userId);
+
+      // 2) Criar transação pendente
       const txn = await storage.createTransaction({
         userId,
         type: "deposit",
@@ -576,24 +605,22 @@ app.post(
         description: `Depósito PIX - R$ ${Number(amount).toFixed(2)}`,
       });
 
+      // 3) Gerar cobrança no provedor com dados do usuário do DB
       const provider = getPaymentProvider();
-
-      // valores de fallback válidos para a API não rejeitar
-      const userName = req.user!.name || req.user!.username || "Cliente";
-      const userEmail = req.user!.email || `user-${req.user!.id}@example.local`;
-      const userDocument = "00000000000"; // use o CPF real quando tiver
-
       const charge = await provider.createCharge({
         amount: Number(amount),
-        description: `Depósito Ludix - ${req.user!.username}`,
+        description: `Depósito Ludix - ${kyc.name}`,
         externalId: txn.id,
-        callbackUrl: process.env.PIX_CALLBACK_URL || (process.env.APP_URL ? `${process.env.APP_URL}/api/webhooks/pix` : undefined),
+        callbackUrl:
+          process.env.PIX_CALLBACK_URL ||
+          (process.env.APP_URL ? `${process.env.APP_URL}/api/webhooks/pix` : undefined),
         expiresIn: 600,
-        userName,
-        userEmail,
-        userDocument,
+        userName: kyc.name,
+        userEmail: kyc.email,
+        userDocument: kyc.cpf,
       });
 
+      // 4) Salvar depósito
       const deposit = await storage.createDeposit({
         userId,
         transactionId: txn.id,
@@ -619,7 +646,9 @@ app.post(
       });
     } catch (error: any) {
       console.error("Deposit creation error:", error);
-      return res.status(500).json({ error: "Falha ao criar depósito" });
+      return res
+        .status(error.status || 500)
+        .json({ error: error.status ? error.message : "Falha ao criar depósito" });
     }
   }
 );
@@ -803,110 +832,105 @@ app.post("/api/webhooks/pix", async (req, res) => {
     async (req, res) => {
       try {
         const userId = req.user!.id;
-        const { amount, pixKey, pixKeyType, recipientDocument } = req.body;
-
-        // Validate amount
+        const { amount, pixKey, pixKeyType } = req.body;
+  
         const amountError = validateAmount(amount, MIN_WITHDRAWAL, MAX_WITHDRAWAL);
         if (amountError) {
           return res.status(400).json({ error: amountError });
         }
-
-        // Validate CPF
-        const cpf = sanitizeCPF(recipientDocument);
-        if (!validateCPF(cpf)) {
-          return res.status(400).json({ error: "CPF inválido" });
+        if (!pixKey || !pixKeyType) {
+          return res.status(400).json({ error: "Chave PIX obrigatória" });
         }
-
-        // Check wallet balance
+  
+        // 1) Dados do usuário (nome/CPF) do banco
+        const kyc = await getUserKycOrFail(userId);
+  
+        // 2) Checar carteira e saldo disponível
         const wallet = await storage.getWallet(userId);
-        if (!wallet) {
-          return res.status(400).json({ error: "Carteira não encontrada" });
-        }
-
-        const availableBalance = 
-          parseFloat(wallet.balanceStandard) + 
-          parseFloat(wallet.balancePrizes) - 
+        if (!wallet) return res.status(400).json({ error: "Carteira não encontrada" });
+  
+        const availableBalance =
+          parseFloat(wallet.balanceStandard) +
+          parseFloat(wallet.balancePrizes) -
           parseFloat(wallet.pendingWithdrawal || "0");
-
+  
         if (availableBalance < amount) {
           return res.status(400).json({ error: "Saldo insuficiente" });
         }
-
-        // Freeze balance (move to pendingWithdrawal)
+  
+        // 3) Congelar saldo para o saque
         const newPendingWithdrawal = parseFloat(wallet.pendingWithdrawal || "0") + amount;
-        
-        // Deduct from balanceStandard first, then balancePrizes
         let standardToDebit = 0;
         let prizesToDebit = 0;
         const currentStandard = parseFloat(wallet.balanceStandard);
         const currentPrizes = parseFloat(wallet.balancePrizes);
-
+  
         if (currentStandard >= amount) {
           standardToDebit = amount;
         } else {
           standardToDebit = currentStandard;
           prizesToDebit = amount - currentStandard;
         }
-
+  
         const newStandard = currentStandard - standardToDebit;
         const newPrizes = currentPrizes - prizesToDebit;
-
+  
         await storage.updateWallet(userId, {
           balanceStandard: newStandard.toString(),
           balancePrizes: newPrizes.toString(),
           pendingWithdrawal: newPendingWithdrawal.toString(),
         });
-
-        // Create pending transaction
-        const transaction = await storage.createTransaction({
+  
+        // 4) Transação pendente
+        const txn = await storage.createTransaction({
           userId,
           type: "withdrawal",
           amount: amount.toString(),
           status: "pending",
           description: `Saque PIX - R$ ${amount.toFixed(2)}`,
         });
-
-        // Request withdrawal via payment provider
+  
+        // 5) Solicitar saque no provedor com dados do DB
         const provider = getPaymentProvider();
         const result = await provider.createWithdrawal({
           amount,
           pixKey,
           pixKeyType,
-          recipientDocument: cpf,
-          recipientName: req.user!.username,
-          externalId: transaction.id,
+          recipientDocument: kyc.cpf,
+          recipientName: kyc.name,
+          externalId: txn.id,
         });
-
-        // Save withdrawal record
+  
+        // 6) Salvar saque
         const withdrawal = await storage.createWithdrawal({
           userId,
-          transactionId: transaction.id,
+          transactionId: txn.id,
           amount: amount.toString(),
           status: "pending",
           pixWithdrawalId: result.id,
           pixKey,
           pixKeyType,
-          recipientName: req.user!.username,
-          recipientDocument: cpf,
+          recipientName: kyc.name,
+          recipientDocument: kyc.cpf,
           completedAt: null,
           failedReason: null,
         });
-
-        res.json({
+  
+        return res.json({
           withdrawalId: withdrawal.id,
-          transactionId: transaction.id,
+          transactionId: txn.id,
           amount,
           status: "pending",
           message: "Saque solicitado com sucesso",
         });
       } catch (error: any) {
         console.error("Withdrawal creation error:", error);
-        
-        // Revert wallet balance on error
+        // Reverter pending em caso de erro
         try {
           const wallet = await storage.getWallet(req.user!.id);
-          if (wallet) {
-            const revertPending = parseFloat(wallet.pendingWithdrawal || "0") - req.body.amount;
+          if (wallet && req.body?.amount) {
+            const revertPending =
+              parseFloat(wallet.pendingWithdrawal || "0") - Number(req.body.amount);
             await storage.updateWallet(req.user!.id, {
               pendingWithdrawal: Math.max(0, revertPending).toString(),
             });
@@ -914,8 +938,9 @@ app.post("/api/webhooks/pix", async (req, res) => {
         } catch (revertError) {
           console.error("Failed to revert balance:", revertError);
         }
-
-        res.status(500).json({ error: "Falha ao criar saque" });
+        return res
+          .status(error.status || 500)
+          .json({ error: error.status ? error.message : "Falha ao criar saque" });
       }
     }
   );
