@@ -37,27 +37,46 @@ export class BetPaymPixProvider implements PaymentProvider {
   }
 
   async createCharge(params: CreateChargeParams): Promise<PixCharge> {
-    const amountInCents = Math.round(params.amount * 100);
-    
-    const response = await this.request('POST', '/pix', {
+    const amountInCents = Math.round(Number(params.amount) * 100);
+  
+    if (!Number.isFinite(amountInCents) || amountInCents <= 0) {
+      throw new Error("Invalid amount");
+    }
+  
+    const payload: any = {
       amount: amountInCents,
-      generatedName: params.userName,
-      generatedEmail: params.userEmail,
-      generatedDocument: params.userDocument,
-      description: params.description,
-      externalId: params.externalId,
-      callbackUrl: params.callbackUrl,
-      expiresIn: params.expiresIn || 600, // 10 minutos padrão
-    });
-
+    };
+  
+    if (params.externalId) payload.externalId = String(params.externalId);
+    if (params.description) payload.description = String(params.description).slice(0, 140);
+    if (params.expiresIn && Number.isFinite(params.expiresIn)) payload.expiresIn = Math.floor(params.expiresIn);
+  
+    // Só envia se existir e for http/https
+    if (params.callbackUrl && /^https?:\/\//i.test(params.callbackUrl)) {
+      payload.callbackUrl = params.callbackUrl;
+    }
+  
+    // Dados do pagador só se válidos
+    if (params.userName) payload.generatedName = String(params.userName).trim();
+    if (params.userEmail) payload.generatedEmail = String(params.userEmail).trim();
+  
+    if (params.userDocument) {
+      const doc = String(params.userDocument).replace(/\D+/g, "");
+      if (/^\d{11}$/.test(doc)) {
+        payload.generatedDocument = doc;
+      }
+    }
+  
+    const response = await this.request("POST", "/pix", payload);
+  
     return {
       id: response.id,
       pixKey: response.pixKey || response.brCode,
       qrCode: response.qrCode,
       qrCodeBase64: response.qrCodeBase64 || response.qrCode,
-      amount: params.amount,
-      status: 'PENDING',
-      expiresAt: new Date(Date.now() + (params.expiresIn || 600) * 1000),
+      amount: Number(params.amount),
+      status: "PENDING",
+      expiresAt: params.expiresIn ? new Date(Date.now() + params.expiresIn * 1000) : undefined,
       paidAt: response.paidAt ? new Date(response.paidAt) : undefined,
     };
   }
