@@ -6,9 +6,36 @@ import type {
   WithdrawalResult
 } from './types';
 
+// ---------- helpers locais ----------
+
+function toCents(amount: number | string) {
+  const n = typeof amount === 'string' ? Number(amount.replace(',', '.')) : Number(amount);
+  if (!Number.isFinite(n) || n <= 0) throw new Error('Valor inválido');
+  return Math.round(n * 100);
+}
+
+/** Gera txid PIX (26–35) alfanumérico, sem símbolos, com base em externalId quando possível */
+function makePixTxid(externalId?: string, prefix = 'DPT') {
+  const only = (externalId || '')
+    .toString()
+    .replace(/[^a-zA-Z0-9]/g, ''); // tira hífen etc.
+
+  let base = (prefix + only).slice(0, 35);
+  if (base.length < 26) {
+    const extra = (Date.now().toString(36) + Math.random().toString(36)).replace(/[^a-zA-Z0-9]/g, '');
+    base = (base + extra).slice(0, 35);
+  }
+  if (base.length < 26) {
+    // fallback extremo
+    base = (base + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789').slice(0, 26);
+  }
+  return base;
+}
+
 export class BetPaymPixProvider implements PaymentProvider {
   name = 'BetPaymPix';
-  private apiUrl = (process.env.BETPAYMPIX_API_URL?.replace(/\/+$/,'') || 'https://api.betpaympix.com') + '/v1';
+  private apiUrl =
+    (process.env.BETPAYMPIX_API_URL?.replace(/\/+$/, '') || 'https://api.betpaympix.com') + '/v1';
   private token: string;
 
   constructor(token: string) {
@@ -17,7 +44,8 @@ export class BetPaymPixProvider implements PaymentProvider {
   }
 
   private async request(method: string, endpoint: string, body?: any) {
-    const res = await fetch(`${this.apiUrl}${endpoint}`, {
+    const url = `${this.apiUrl}${endpoint}`;
+    const res = await fetch(url, {
       method,
       headers: {
         Authorization: `Bearer ${this.token}`,
@@ -26,39 +54,52 @@ export class BetPaymPixProvider implements PaymentProvider {
       body: body ? JSON.stringify(body) : undefined,
     });
 
+    // lê tudo para log decente
+    const raw = await res.text();
+    let data: any = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch { data = { raw }; }
+
     if (!res.ok) {
-      // tenta ler JSON, senão texto
-      let message = await res.text();
-      try { message = JSON.stringify(await res.clone().json()); } catch {}
-      throw new Error(`BetPaymPix API error: ${res.status} - ${message}`);
+      const err = new Error(`BetPaymPix API error: ${res.status} - ${JSON.stringify(data)}`);
+      // log explícito p/ diagnosticar "Invalid ..."
+      console.error('[BetPaymPix] ERROR', method, endpoint, 'payload=', body, 'response=', data);
+      throw err;
     }
-    return res.json();
+
+    return data;
   }
 
   async createCharge(params: CreateChargeParams): Promise<PixCharge> {
-    const amountInCents = Math.round(params.amount * 100);
+    const amountInCents = toCents(params.amount);
 
     const callbackUrl =
       params.callbackUrl ||
       process.env.PIX_CALLBACK_URL ||
-      (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/+$/,'')}/api/webhooks/pix` : undefined);
+      (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/+$/, '')}/api/webhooks/pix` : undefined);
 
-    if (!callbackUrl) throw new Error('callbackUrl is required (set PIX_CALLBACK_URL or APP_URL)');
+    if (!callbackUrl) {
+      throw new Error('callbackUrl is required (configure PIX_CALLBACK_URL ou APP_URL)');
+    }
 
-    // Envia apenas o essencial. Campos do pagador entram só se válidos.
+    // Gera txid válido (26–35, alfanumérico)
+    const txid = makePixTxid(params.externalId);
+
+    // payload mínimo e “limpo”
     const payload: Record<string, any> = {
       amount: amountInCents,
       description: (params.description || '').slice(0, 255),
-      externalId: params.externalId,
+      externalId: txid, // usamos o txid sanitizado
+      txid,             // e também enviamos como txid explicitamente
       callbackUrl,
       expiresIn: typeof params.expiresIn === 'number' ? params.expiresIn : 600,
     };
 
-    // Dados do pagador – só se existirem e forem plausíveis.
+    // Dados do pagador: só se válidos
     if (params.userName && params.userName.trim()) payload.name = params.userName.trim();
     if (params.userEmail && params.userEmail.includes('@')) payload.email = params.userEmail.trim();
     if (params.userDocument && /^\d{11}$/.test(params.userDocument)) payload.document = params.userDocument;
 
+    // Mantém o endpoint /pix que você já usava
     const r = await this.request('POST', '/pix', payload);
 
     return {
@@ -66,9 +107,9 @@ export class BetPaymPixProvider implements PaymentProvider {
       pixKey: r.pixKey || r.brCode,
       qrCode: r.qrCode,
       qrCodeBase64: r.qrCodeBase64 || r.qrCode,
-      amount: params.amount,
+      amount: Number(params.amount),
       status: 'PENDING',
-      expiresAt: r.expiresAt ? new Date(r.expiresAt) : new Date(Date.now() + (payload.expiresIn * 1000)),
+      expiresAt: r.expiresAt ? new Date(r.expiresAt) : new Date(Date.now() + payload.expiresIn * 1000),
       paidAt: r.paidAt ? new Date(r.paidAt) : undefined,
     };
   }
@@ -88,19 +129,19 @@ export class BetPaymPixProvider implements PaymentProvider {
   }
 
   async createWithdrawal(params: CreateWithdrawalParams): Promise<WithdrawalResult> {
-    const amountInCents = Math.round(params.amount * 100);
     const r = await this.request('POST', '/withdrawals', {
-      amount: amountInCents,
+      amount: toCents(params.amount),
       pixKey: params.pixKey,
       pixKeyType: params.pixKeyType,
       recipientName: params.recipientName,
       recipientDocument: params.recipientDocument,
       externalId: params.externalId,
     });
+
     return {
       id: r.id,
       status: 'PENDING',
-      amount: params.amount,
+      amount: Number(params.amount),
       completedAt: r.completedAt ? new Date(r.completedAt) : undefined,
       failureReason: r.failureReason,
     };
