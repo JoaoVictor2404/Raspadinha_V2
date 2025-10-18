@@ -589,42 +589,42 @@ app.post(
       const { amount } = req.body;
 
       const amountError = validateAmount(amount, MIN_DEPOSIT, MAX_DEPOSIT);
-      if (amountError) {
-        return res.status(400).json({ error: amountError });
-      }
+      if (amountError) return res.status(400).json({ error: amountError });
 
-      // 1) Buscar dados do usuário no DB
-      const kyc = await getUserKycOrFail(userId);
-
-      // 2) Criar transação pendente
-      const txn = await storage.createTransaction({
+      const transaction = await storage.createTransaction({
         userId,
         type: "deposit",
-        amount: Number(amount).toString(),
+        amount: amount.toString(),
         status: "pending",
         description: `Depósito PIX - R$ ${Number(amount).toFixed(2)}`,
       });
 
-      // 3) Gerar cobrança no provedor com dados do usuário do DB
       const provider = getPaymentProvider();
+
+      // pega dados do usuário do banco
+      const user = await storage.getUser(userId);
+      const userName = (user?.name || user?.username || '').trim() || undefined;
+      const userEmail = (user?.email || '').trim() || undefined;
+      const userDocument = user?.cpf ? sanitizeCPF(user.cpf) : undefined;
+
+      const callbackUrl =
+        process.env.PIX_CALLBACK_URL ||
+        (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/+$/,'')}/api/webhooks/pix` : undefined);
+
       const charge = await provider.createCharge({
         amount: Number(amount),
-        description: `Depósito Ludix - ${kyc.name}`,
-        externalId: txn.id,
-        callbackUrl:
-          process.env.PIX_CALLBACK_URL ||
-          (process.env.APP_URL ? `${process.env.APP_URL}/api/webhooks/pix` : undefined),
-        expiresIn: 600,
-        userName: kyc.name,
-        userEmail: kyc.email,
-        userDocument: kyc.cpf,
+        description: `Depósito Ludix - ${user?.username || userName || userId}`,
+        externalId: transaction.id,
+        callbackUrl,             // **garantimos que sempre vai**
+        userName,                // enviados só se existirem
+        userEmail,
+        userDocument,            // 11 dígitos
       });
 
-      // 4) Salvar depósito
       const deposit = await storage.createDeposit({
         userId,
-        transactionId: txn.id,
-        amount: Number(amount).toString(),
+        transactionId: transaction.id,
+        amount: String(amount),
         status: "pending",
         pixChargeId: charge.id,
         pixKey: charge.pixKey || null,
@@ -634,9 +634,9 @@ app.post(
         paidAt: null,
       });
 
-      return res.json({
+      res.json({
         depositId: deposit.id,
-        transactionId: txn.id,
+        transactionId: transaction.id,
         qrCode: charge.qrCode,
         qrCodeBase64: charge.qrCodeBase64,
         pixKey: charge.pixKey,
@@ -646,9 +646,7 @@ app.post(
       });
     } catch (error: any) {
       console.error("Deposit creation error:", error);
-      return res
-        .status(error.status || 500)
-        .json({ error: error.status ? error.message : "Falha ao criar depósito" });
+      return res.status(500).json({ error: "Falha ao criar depósito" });
     }
   }
 );
