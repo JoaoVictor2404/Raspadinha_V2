@@ -573,41 +573,26 @@ app.post(
       // ------------------ NOVO: construir callbackUrl ------------------
       const appUrl = process.env.APP_URL?.replace(/\/$/, "");
       const callbackUrlEnv = process.env.PIX_CALLBACK_URL?.trim();
-      const callbackUrl =
-        callbackUrlEnv || (appUrl ? `${appUrl}/api/deposits/notify` : undefined);
-
-      if (!callbackUrl) {
-        return res
-          .status(500)
-          .json({ error: "PIX_CALLBACK_URL ou APP_URL não configurados" });
-      }
-      // -----------------------------------------------------------------
-
-      // pegamos alguns dados do usuário para enviar ao provedor
+      const inferredCallback = appUrl ? `${appUrl}/api/deposits/notify` : undefined;
+      const callbackUrl = callbackUrlEnv || inferredCallback;
+          
+      // valida o callback (se não for http[s], não envia)
+      const validCallback = callbackUrl && /^https?:\/\//i.test(callbackUrl) ? callbackUrl : undefined;
+          
       const user = await storage.getUser(userId);
-
-      // Create pending transaction
-      const transaction = await storage.createTransaction({
-        userId,
-        type: "deposit",
-        amount: amount.toString(),
-        status: "pending",
-        description: `Depósito PIX - R$ ${Number(amount).toFixed(2)}`,
-      });
-
-      // Create charge via payment provider
+      const safeDoc = user?.cpf ? String(user.cpf).replace(/\D+/g, "") : undefined;
+      const userDocument = safeDoc && /^\d{11}$/.test(safeDoc) ? safeDoc : undefined;
+          
       const provider = getPaymentProvider();
       const charge = await provider.createCharge({
         amount,
         description: `Depósito Ludix - ${req.user!.username}`,
         externalId: transaction.id,
-        // ---------- NOVOS CAMPOS ENVIADOS AO PROVEDOR ----------
         userName: user?.name ?? req.user!.username ?? "Usuário",
         userEmail: user?.email ?? `${userId}@placeholder.local`,
-        userDocument: user?.cpf ?? undefined,
-        callbackUrl,            // <- requerido pelo BetPaymPix
-        expiresIn: 600,         // 10 min
-        // --------------------------------------------------------
+        userDocument,        // só vai se for CPF válido (11 dígitos)
+        callbackUrl: validCallback, // só vai se for http/https
+        expiresIn: 600,
       });
 
       // Save deposit record
